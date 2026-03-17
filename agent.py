@@ -26,9 +26,11 @@ class InnovationManager:
 
         # this generation only; manage new innovations
         self.innovationDict = {}
+        self.nodeDict = {}
 
     def start_new_generation(self):
         self.innovationDict.clear()
+        self.nodeDict.clear()
 
     def get_synapse_innovation(self, input_id, output_id):
         key = (input_id, output_id)
@@ -44,8 +46,13 @@ class InnovationManager:
 
         return new_id
 
-    def get_new_node_id(self):
+    def get_new_node_id(self, input_id, output_id):
+        key = (input_id, output_id)
+        if key in self.nodeDict:
+            return self.nodeDict[key]
+            
         new_id = self.neuron_ct
+        self.nodeDict[key] = new_id
         self.neuron_ct += 1
         return new_id
 
@@ -58,6 +65,44 @@ class Network:
 
         self.neuron_dict = {n.id: n for n in self.neurons}
         self.execution_order = self.compute_order()
+        self.incoming_synapses = self.compute_incoming_synapses()
+        self.flattened_execution = self.compute_flattened_execution()
+
+    def compute_flattened_execution(self):
+        instructions = []
+        for n_id in self.execution_order:
+            neuron = self.neuron_dict[n_id]
+            syns = self.incoming_synapses.get(n_id, [])
+            in_syn_weights = [(s.input_id, s.weight) for s in syns]
+            instructions.append((n_id, neuron.bias, in_syn_weights))
+        return instructions
+        
+    @classmethod
+    def crossover(cls, parent1, parent2):
+        if parent2.fitness is not None and parent1.fitness is not None and parent2.fitness > parent1.fitness:
+            parent1, parent2 = parent2, parent1
+
+        new_neurons = [Neuron(n.id, n.type, n.bias, n.depth) for n in parent1.neurons]
+            
+        p1_synapses = {s.innovation: s for s in parent1.connections}
+        p2_synapses = {s.innovation: s for s in parent2.connections}
+        
+        all_innovations = set(p1_synapses.keys()) | set(p2_synapses.keys())
+        
+        new_synapses = []
+        for inno in sorted(list(all_innovations)):
+            if inno in p1_synapses and inno in p2_synapses:
+                chosen = random.choice([p1_synapses[inno], p2_synapses[inno]])
+                enabled = p1_synapses[inno].enabled and p2_synapses[inno].enabled
+                if not enabled and random.random() < 0.25:
+                    enabled = True
+                    
+                new_synapses.append(Synapse(chosen.input_id, chosen.output_id, chosen.weight, chosen.innovation, enabled))
+            elif inno in p1_synapses:
+                s = p1_synapses[inno]
+                new_synapses.append(Synapse(s.input_id, s.output_id, s.weight, s.innovation, s.enabled))
+
+        return cls(new_neurons, new_synapses)
 
     def compute_order(self):
         # depth approach
@@ -93,6 +138,13 @@ class Network:
 
         return execution_order
 
+    def compute_incoming_synapses(self):
+        incoming = {n.id: [] for n in self.neurons}
+        for synapse in self.connections:
+            if synapse.enabled:
+                incoming[synapse.output_id].append(synapse)
+        return incoming
+
     def forward_pass(self, observations):
         neuron_values = {
             0: observations[0],  # cart x
@@ -103,19 +155,11 @@ class Network:
             5: observations[5]   # w
         }
 
-        for neuron_id in self.execution_order:
-            neuron = self.neuron_dict[neuron_id]
-
-            incoming_sum = 0.0
-            for synapse in self.connections:
-                if synapse.output_id == neuron.id and synapse.enabled:
-                    parent_value = neuron_values.get(synapse.input_id, 0.0)
-                    incoming_sum += parent_value * synapse.weight
-
-            incoming_sum += neuron.bias
-            final_value = math.tanh(incoming_sum)
-
-            neuron_values[neuron.id] = final_value
+        for n_id, bias, syns in self.flattened_execution:
+            incoming_sum = bias
+            for in_id, weight in syns:
+                incoming_sum += neuron_values.get(in_id, 0.0) * weight
+            neuron_values[n_id] = math.tanh(incoming_sum)
 
         return neuron_values[6]
 
@@ -138,7 +182,7 @@ class Network:
 
         # new neuron
         new_depth = (in_depth + out_depth) / 2.0
-        new_id = innovation_tracker.get_new_node_id()
+        new_id = innovation_tracker.get_new_node_id(random_synapse.input_id, random_synapse.output_id)
         new_neuron = Neuron(new_id, "HIDDEN", 0.0, new_depth)
         self.neurons.append(new_neuron)
         self.neuron_dict[new_id] = new_neuron
@@ -152,8 +196,10 @@ class Network:
         self.connections.append(new_synapse1)
         self.connections.append(new_synapse2)
 
-        # update execution order
+        # update execution order & incoming synapses cache
         self.execution_order = self.compute_order()
+        self.incoming_synapses = self.compute_incoming_synapses()
+        self.flattened_execution = self.compute_flattened_execution()
 
     def mutate_add_synapse(self, innovation_tracker):
         existing_synapses = set((s.input_id, s.output_id) for s in self.connections)
@@ -186,6 +232,8 @@ class Network:
                               True)
 
         self.connections.append(new_synapse)
+        self.incoming_synapses = self.compute_incoming_synapses()
+        self.flattened_execution = self.compute_flattened_execution()
 
     def mutate_weights(self):
         for synapse in self.connections:

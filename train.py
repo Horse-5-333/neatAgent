@@ -1,18 +1,27 @@
 import concurrent.futures.process
+import concurrent.futures
 import random
 from copy import deepcopy
 import pickle
 import os
-from agent import *
-from physics import *
-import concurrent.futures
 from functools import partial
-import copy
+from agent import gen0_network, InnovationManager, Network
+from physics import DoublePendulumEnv
 
+POPULATION = 100
+GENERATIONS = 1000
+SIM_TIME = 20
+DT = 1/60.0
+ELITE_PERCENTILE = 0.1 # top creatures always advance
+ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
+CURRICULUM_STEP = 0.0025 # parameter to control difficulty progression speed
+NEXT_STAGE_CUTOFF = 1200
 
-# This runs in a completely separate background process!
-def evaluate_single_network(network, run_steps):
-    env = DoublePendulumEnv()
+def evaluate_single_network(network, run_steps, generation_seed, gravity, friction):
+    # Ensure all networks in a generation face the exact same random environmental start
+    random.seed(generation_seed)
+    
+    env = DoublePendulumEnv(gravity=gravity, friction_multiplier=friction)
     obs = env.reset()
     fitness = 0.0
 
@@ -36,12 +45,15 @@ def run_simulation(num_generations, pop_size):
     if not os.path.exists("saved_networks"):
         os.makedirs("saved_networks")
 
+    current_gravity = 9.81 * 0.05
+    current_friction = 1.0
 
     with concurrent.futures.process.ProcessPoolExecutor() as executor:
         for generation in range(num_generations + 1):
-
-            eval_func = partial(evaluate_single_network, run_steps=steps)
-            scores = list(executor.map(eval_func, population))
+            
+            gen_seed = random.randint(0, 100000000)
+            eval_func = partial(evaluate_single_network, run_steps=steps, generation_seed=gen_seed, gravity=current_gravity, friction=current_friction)
+            scores = list(executor.map(eval_func, population, chunksize=10))
 
             for i in range(pop_size):
                 population[i].fitness = scores[i]
@@ -50,56 +62,62 @@ def run_simulation(num_generations, pop_size):
             population.sort(key=lambda n: n.fitness, reverse=True)
 
             champion_network = population[0]
+            median_network = population[int(0.5 * pop_size)]
 
             print(f"Generation {generation:>4} Distribution :{population[-1].fitness:>5.0f} "
                   f"{population[int(0.75 * pop_size)].fitness:>5.0f} "
                   f"{population[int(0.5 * pop_size)].fitness:>5.0f} "
                   f"{population[int(0.25 * pop_size)].fitness:>5.0f} "
                   f" {population[0].fitness:>5.0f}"
-                  f"{" *" if ((generation % 10 == 0) or (champion_network.fitness > 3000)) else ""}")
+                  f"{f" G: {current_gravity:.2f}, F: {current_friction:.2f}" if median_network.fitness > NEXT_STAGE_CUTOFF else ""} ")
+
+            if median_network.fitness > NEXT_STAGE_CUTOFF:
+                current_gravity = min(9.81, current_gravity + 9.81 * CURRICULUM_STEP)
+                current_friction = max(0.0, current_friction - CURRICULUM_STEP)
 
 
-            if (generation % 10 == 0) or (champion_network.fitness > 2000):
+            if (generation % 10 == 0):
                 filename = f"saved_networks/champion_gen_{generation}.pkl"
                 with open(filename, "wb") as f:
                     pickle.dump(champion_network, f)
 
 
             elite_ct = int(ELITE_PERCENTILE * pop_size)
-            next_gen = population[:elite_ct]
+            next_gen = [deepcopy(p) for p in population[:elite_ct]]
 
             while len(next_gen) < ELITE_MUTATE * pop_size:
-                parent = random.choice(population[:elite_ct])
-                child = deepcopy(parent)
-
+                if random.random() < 0.75:
+                    parent1 = random.choice(population[:elite_ct])
+                    parent2 = random.choice(population[:elite_ct])
+                    child = Network.crossover(parent1, parent2)
+                else:
+                    parent = random.choice(population[:elite_ct])
+                    child = deepcopy(parent)
                 next_gen.append(child)
 
             while len(next_gen) < pop_size:
-                parent = random.choice(population)
-                child = deepcopy(parent)
-
+                if random.random() < 0.75:
+                    parent1 = random.choice(population[:elite_ct])
+                    parent2 = random.choice(population)
+                    child = Network.crossover(parent1, parent2)
+                else:
+                    parent = random.choice(population)
+                    child = deepcopy(parent)
                 next_gen.append(child)
 
             inno_tracker.start_new_generation()
 
-        for network in next_gen[elite_ct:]:
-            network.mutate_weights()
+            for network in next_gen[elite_ct:]:
+                network.mutate_weights()
 
-            if random.random() <= 0.05:
-                network.mutate_add_neuron(inno_tracker)
-            if random.random() <= 0.1:
-                network.mutate_add_synapse(inno_tracker)
+                if random.random() <= 0.05:
+                    network.mutate_add_neuron(inno_tracker)
+                if random.random() <= 0.1:
+                    network.mutate_add_synapse(inno_tracker)
 
-        population = next_gen
+            population = next_gen
 
     return population[0] # the best network of all time!!!!
-
-POPULATION = 100
-GENERATIONS = 1000
-SIM_TIME = 15
-DT = 1/60.0
-ELITE_PERCENTILE = 0.1 # top creatures always advance
-ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
 
 if __name__ == "__main__":
     run_simulation(GENERATIONS, POPULATION)

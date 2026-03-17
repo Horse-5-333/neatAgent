@@ -1,10 +1,11 @@
-from physics import *
-from agent import *
 import arcade
 import time
 import collections
 import pickle
 import os
+
+from physics import Vec, DoublePendulumEnv, TRACK_HEIGHT, TRACK_LENGTH, SCREEN_WIDTH, SCREEN_HEIGHT, PPM
+from agent import gen0_network
 
 BG_COLOR = (26, 29, 26)
 TXT_COLOR = (247, 247, 249)
@@ -192,12 +193,12 @@ class PhysicsSimulator(arcade.Window):
             self.total_score += self.reward
 
         # --- NEW: Update Cached Text Properties ---
-        if self.frame_count <= 900:
+        if self.frame_count <= 1200:
             self.agent_score_in_period = self.total_score
             self.frame_text.text = f"FRAME: {self.frame_count :04d}"
             self.score_text.text = f"SCORE: {self.total_score:>4.0f}"
         else:
-            self.frame_text.text = f"FRAME: 0900 + {self.frame_count-900:0d}"
+            self.frame_text.text = f"FRAME: 1200 + {self.frame_count-1200:0d}"
             self.score_text.text = (f"SCORE: {self.agent_score_in_period:>4.0f} + "
                                     f"{self.total_score - self.agent_score_in_period:>.0f}")
         reward = self.reward
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     env = DoublePendulumEnv()
     env.reset()
 
-    glitched_brain_path = "saved_networks/champion_gen_20.pkl"
+    glitched_brain_path = "saved_networks/champion_gen_550.pkl"
 
     viewer = PhysicsSimulator(env, brain_filepath=glitched_brain_path)
     arcade.run()
