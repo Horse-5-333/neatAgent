@@ -135,7 +135,7 @@ class PhysicsSimulator(arcade.Window):
     def on_update(self, delta_time):
         cycle_start_time = time.perf_counter()
 
-        delta_time = min(delta_time, 0.033)
+        delta_time = min(delta_time, 1/60.0)
 
         sub_steps = 3
         sub_dt = delta_time / sub_steps

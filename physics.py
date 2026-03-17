@@ -5,12 +5,12 @@ import random
 SCREEN_WIDTH = 14  # meters
 SCREEN_HEIGHT = 16
 PPM = 50 # pixels per meter
-G = 9.81
+G = 9.81 * 0.5
 EPSILON = 1e-6
-GLOBAL_FRICTION_MULTIPLIER = 0.01
+GLOBAL_FRICTION_MULTIPLIER = .5
 TRACK_HEIGHT = 10
 TRACK_LENGTH = 8
-MAX_FORCE = 800 # N
+MAX_FORCE = 400 # N
 
 class Vec:
     def __init__(self, x, y):
@@ -173,9 +173,9 @@ class DoublePendulumEnv:
     def reset(self):
         track_home = Vec(SCREEN_WIDTH / 2, TRACK_HEIGHT)
 
-        # randomized starts of each bob to prevent overfitting
-        theta = [random.uniform(0, 2 * math.pi), random.uniform(0, 2 * math.pi)]
-
+        # TODO: randomized starts of each bob to prevent overfitting
+        # theta = [random.uniform(0, 2 * math.pi), random.uniform(0, 2 * math.pi)]
+        theta = [1 * math.pi / 2, 1 * math.pi / 2]
         # TODO: randomized velocities tangent to direction
         vel = [random.uniform(-3, 3), random.uniform(-5, 5)]
 
@@ -190,7 +190,7 @@ class DoublePendulumEnv:
 
         return self.observations()
 
-    def step(self, action_force, dt=0.033):
+    def step(self, action_force, dt=1/60.0):
         sub_steps = 3
         sub_dt = dt / sub_steps
 
@@ -265,15 +265,36 @@ class DoublePendulumEnv:
             # --- INTEGRATION & KINEMATIC LOCKS ---
             self.cart.a.y = 0.0
 
+            #  Hard lock the rail
+            self.cart.s.y = TRACK_HEIGHT
+            self.cart.v.y = 0.0
+
             self.cart.update(sub_dt)
             self.bob1.update(sub_dt)
             self.bob2.update(sub_dt)
 
-            # Hard lock the rail
             self.cart.s.y = TRACK_HEIGHT
             self.cart.v.y = 0.0
 
-        return self.observations()
+        # calculate rewards
+        obs = self.observations()
+
+        bob1_height = (self.bob1.s.y - (TRACK_HEIGHT - self.bob1_rest_length)) / self.bob1_rest_length
+        bob2_height = ((self.bob2.s.y - (TRACK_HEIGHT - self.bob1_rest_length - self.bob2_rest_length))
+                       / (self.bob1_rest_length + self.bob2_rest_length))
+        # delta_h_to_threshold = self.bob2.s.y - TRACK_HEIGHT - 0.9 * (self.bob1_rest_length + self.bob2_rest_length)
+        reward = (bob1_height ** 2 + bob2_height ** 2) / 2.0
+
+        distance_to_center = obs[0]
+        central_mult = 0.5 * math.cosh( -(distance_to_center ** 2) + 1) + 0.5
+        reward *= central_mult
+
+        # TODO: PREVENT RAPID SPAMMING WITH SPEED PENALTY
+        # speed = obs[5]
+        # speed_penalty = 2 * math.cosh(- (speed ** 2) + 1) - 1.25
+        # reward *= speed_penalty
+
+        return obs, reward
 
     def observations(self):
         cart_x = (2*self.cart.s.x - SCREEN_WIDTH)/TRACK_LENGTH
@@ -289,15 +310,3 @@ class DoublePendulumEnv:
 
         return [cart_x, cart_v, theta, v, phi, w]
 
-if __name__ == "__main__":
-    sim_time = 30
-    dt = 0.033
-
-    steps = sim_time / dt
-    env = DoublePendulumEnv()
-    state = env.reset()
-
-    for i in range (int(steps)):
-        action = random.uniform(-1, 1)
-        state = env.step(action, dt)
-        print(state)

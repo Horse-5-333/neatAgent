@@ -3,6 +3,8 @@ from agent import *
 import arcade
 import time
 import collections
+import pickle
+import os
 
 BG_COLOR = (26, 29, 26)
 TXT_COLOR = (247, 247, 249)
@@ -10,7 +12,8 @@ DARK_GRAY = (51, 82, 88)
 LIGHT_GRAY = (165, 178, 182)
 ACC1_COLOR = (219, 127, 103)
 ACC2_COLOR = (143, 45, 86)
-SUBTLE_GRID_COLOR = (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 50)  # RGBA with a low alpha so it stays in the background
+SUBTLE_GRID_COLOR = (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2],
+                     50)  # RGBA with a low alpha so it stays in the background
 
 
 # UI
@@ -98,21 +101,39 @@ class LiveLineChart:
 
             arcade.draw_line_strip(points, self.line_color, line_width=4)
 
+
 # --- MAIN APPLICATION ---
 
 class PhysicsSimulator(arcade.Window):
-    def __init__(self, env):
-        super().__init__(int(SCREEN_WIDTH * PPM), int(SCREEN_HEIGHT * PPM), "Double Pendulum Simulator", antialiasing=True)
+    def __init__(self, env, brain_filepath=None):
+        super().__init__(int(SCREEN_WIDTH * PPM), int(SCREEN_HEIGHT * PPM), "Double Pendulum Simulator",
+                         antialiasing=True)
+        self.agent_score_in_period = None
         arcade.set_background_color(BG_COLOR)
 
         # AI setup
         self.env = env
-        self.network = gen0_network()
+
+        # Pickle Loading Logic
+        if brain_filepath and os.path.exists(brain_filepath):
+            with open(brain_filepath, "rb") as f:
+                self.network = pickle.load(f)
+            print(f"Successfully loaded brain from: {brain_filepath}")
+        else:
+            self.network = gen0_network()
+            print("No saved brain provided or found. Falling back to random Gen 0 brain.")
+
         self.current_obs = self.env.observations()
+        self.reward = None
+
+        # HUD Trackers
+        self.frame_count = 0
+        self.total_score = 0.0
 
         # scene collections (obejcts, graphs)
         self.scene_masses = [self.env.cart, self.env.bob1, self.env.bob2]
         self.action_hist = collections.deque(maxlen=300)
+        self.reward_hist_data = collections.deque(maxlen=300)
 
         # camera and rendering planes
         self.main_camera = arcade.Camera2D()
@@ -120,29 +141,72 @@ class PhysicsSimulator(arcade.Window):
         self.text_camera.zoom = 0.5
         self.text_camera.bottom_left = (0, 0)
 
+        # --- NEW: HUD Cached Text Objects ---
+        # Because text_camera zoom is 0.5, the coordinate system is effectively doubled
+        viewport_top = (SCREEN_HEIGHT * PPM) * 2
 
-        self.force_history = LiveLineChart(
+        self.frame_text = arcade.Text(
+            "FRAME: 0000",
+            x=75,
+            y=viewport_top - 60,
+            color=TXT_COLOR,
+            font_size=24,
+            font_name="Jetbrains Mono",
+            bold=True
+        )
+
+        self.score_text = arcade.Text(
+            "SCORE:     0.00",
+            x=75,
+            y=viewport_top - 100,
+            color=ACC1_COLOR,
+            font_size=24,
+            font_name="Jetbrains Mono",
+            bold=True
+        )
+
+        self.action_hist_chart = LiveLineChart(
             x=75, y=75, width=600, height=300,
-            title="Agent Force Applied", min_y=-1, max_y=1, max_points=300,
+            title="Agent Force Applied", min_y=-2, max_y=2, max_points=300,
             line_color=(ACC1_COLOR[0], ACC1_COLOR[1], ACC1_COLOR[2], 200)
         )
 
+        self.reward_hist_chart = LiveLineChart(
+            x=75 / 2 + (SCREEN_WIDTH * PPM), y=75, width=600, height=300,
+            title="Reward Received", min_y=0, max_y=6, max_points=300,
+            line_color=(ACC2_COLOR[0], ACC2_COLOR[1], ACC2_COLOR[2], 200)
+        )
 
     def on_update(self, delta_time):
         cycle_start_time = time.perf_counter()
 
-        # Neuter first-frame lag spikes
-        delta_time = min(delta_time, 0.033)
-
         action_force = self.network.forward_pass(self.current_obs)
         self.action_hist.append(action_force)
-        self.force_history.add_point(action_force)
+        self.action_hist_chart.add_point(action_force)
 
-        self.current_obs = self.env.step(action_force, delta_time)
+        self.current_obs, self.reward = self.env.step(action_force, 1/60.0)
+
+        # Update HUD Trackers
+        self.frame_count += 1
+        if self.reward is not None:
+            self.total_score += self.reward
+
+        # --- NEW: Update Cached Text Properties ---
+        if self.frame_count <= 900:
+            self.agent_score_in_period = self.total_score
+            self.frame_text.text = f"FRAME: {self.frame_count :04d}"
+            self.score_text.text = f"SCORE: {self.total_score:>4.0f}"
+        else:
+            self.frame_text.text = f"FRAME: 0900 + {self.frame_count-900:0d}"
+            self.score_text.text = (f"SCORE: {self.agent_score_in_period:>4.0f} + "
+                                    f"{self.total_score - self.agent_score_in_period:>.0f}")
+        reward = self.reward
+        if reward is not None:
+            self.reward_hist_data.append(reward)
+            self.reward_hist_chart.add_point(reward)
 
     def on_draw(self):
         self.clear()
-
 
         with self.main_camera.activate():
             draw_track(TRACK_HEIGHT, TRACK_LENGTH)
@@ -164,9 +228,14 @@ class PhysicsSimulator(arcade.Window):
                 arcade.draw_circle_filled(pos_p.x, pos_p.y, radius_p, ACC1_COLOR)
                 draw_vec(pt_mass.s, pt_mass.v, ACC2_COLOR)
 
-
         with self.text_camera.activate():
-            self.force_history.draw()
+            self.action_hist_chart.draw()
+            self.reward_hist_chart.draw()
+
+            # --- NEW: Call .draw() on cached objects ---
+            self.frame_text.draw()
+            self.score_text.draw()
+
 
 def draw_vec(tail, vector, color, thickness=2, scaling=True, arrowhead=True):
     # auto determine thickness: try to be 3px, unless len < cutoff, then scale down.
@@ -199,9 +268,10 @@ def draw_vec(tail, vector, color, thickness=2, scaling=True, arrowhead=True):
                          flare2.x * PPM, flare2.y * PPM,
                          color, thickness)
 
+
 def draw_track(height, length):
-    start = Vec(SCREEN_WIDTH/2 - length/2, height)
-    end = Vec(SCREEN_WIDTH/2 + length/2, height)
+    start = Vec(SCREEN_WIDTH / 2 - length / 2, height)
+    end = Vec(SCREEN_WIDTH / 2 + length / 2, height)
     arcade.draw_line(start.x * PPM, height * PPM,
                      end.x * PPM, height * PPM,
                      DARK_GRAY, 2)
@@ -213,14 +283,17 @@ def draw_track(height, length):
     draw_vec(Vec(SCREEN_WIDTH / 2 + length / 2, height - 0.25),
              Vec(0, .5),
              DARK_GRAY, 2, False, False)
-    for i in range (1, length):
+    for i in range(1, length):
         draw_vec(Vec(SCREEN_WIDTH / 2 - length / 2 + i, height - 0.1),
                  Vec(0, .2),
                  DARK_GRAY, 2, False, False)
+
 
 if __name__ == "__main__":
     env = DoublePendulumEnv()
     env.reset()
 
-    viewer = PhysicsSimulator(env)
+    glitched_brain_path = "saved_networks/champion_gen_20.pkl"
+
+    viewer = PhysicsSimulator(env, brain_filepath=glitched_brain_path)
     arcade.run()
