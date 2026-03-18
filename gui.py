@@ -28,13 +28,13 @@ SUBTLE_GRID_COLOR = (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 50)
 
 # Training Constants
 POPULATION = 256
-GENERATIONS = 1000
+GENERATIONS = 50
 SIM_TIME = 20
 DT = 1/60.0
 ELITE_PERCENTILE = 0.1
 ELITE_MUTATE = 0.8
 CURRICULUM_STEP = 0.005
-NEXT_STAGE_CUTOFF = 800
+NEXT_STAGE_CUTOFF = 700
 COMPATIBILITY_THRESHOLD = 5.0
 
 
@@ -814,7 +814,7 @@ def runner_loop(ui_queue, seed_network):
 
     # Multiprocessing inside the Thread!
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=optimal_workers) as executor:
-        for generation in range(GENERATIONS + 1):
+        for generation in itertools.count():
             if KILL_FLAG: break
             while PAUSE_FLAG:
                 time.sleep(0.1)
