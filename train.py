@@ -8,7 +8,7 @@ from functools import partial
 from agent import gen0_network, InnovationManager, Network
 from physics import DoublePendulumEnv
 
-POPULATION = 100
+POPULATION = 96
 GENERATIONS = 1000
 SIM_TIME = 20
 DT = 1/60.0
@@ -53,7 +53,7 @@ def run_simulation(num_generations, pop_size):
             
             gen_seed = random.randint(0, 100000000)
             eval_func = partial(evaluate_single_network, run_steps=steps, generation_seed=gen_seed, gravity=current_gravity, friction=current_friction)
-            scores = list(executor.map(eval_func, population, chunksize=10))
+            scores = list(executor.map(eval_func, population, chunksize=12))
 
             for i in range(pop_size):
                 population[i].fitness = scores[i]
@@ -76,10 +76,10 @@ def run_simulation(num_generations, pop_size):
                 current_friction = max(0.0, current_friction - CURRICULUM_STEP)
 
 
-            if (generation % 10 == 0):
-                filename = f"saved_networks/champion_gen_{generation}.pkl"
-                with open(filename, "wb") as f:
-                    pickle.dump(champion_network, f)
+            # if generation % 10 == 0:
+            #     filename = f"saved_networks/champion_gen_{generation}.pkl"
+            #     with open(filename, "wb") as f:
+            #         pickle.dump(champion_network, f)
 
 
             elite_ct = int(ELITE_PERCENTILE * pop_size)
