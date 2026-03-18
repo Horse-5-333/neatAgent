@@ -5,17 +5,22 @@ from copy import deepcopy
 import pickle
 import os
 from functools import partial
+import collections
+import cProfile
+import pstats
+import io
 from agent import gen0_network, InnovationManager, Network, fast_forward_pass_flat
 from physics import DoublePendulumEnv
 
 POPULATION = 96
-GENERATIONS = 10000
+GENERATIONS = 1000
 SIM_TIME = 20
 DT = 1/60.0
 ELITE_PERCENTILE = 0.1 # top creatures always advance
 ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
 CURRICULUM_STEP = 0.005 # parameter to control difficulty progression speed
-NEXT_STAGE_CUTOFF = 2500 # reward required for 95% percentile, to continue cirriculum
+NEXT_STAGE_CUTOFF = 2000 # reward required for 95% percentile, to continue cirriculum
+COMPATIBILITY_THRESHOLD = 3.0
 
 def evaluate_single_network(network_flat, run_steps, generation_seed, start_var):
     # Ensure all networks in a generation face the exact same random environmental start
@@ -48,6 +53,7 @@ def run_simulation(num_generations, pop_size):
     current_gravity = 9.81
     current_friction = 0.05
     current_variance = 0.00
+    compatibility_threshold = COMPATIBILITY_THRESHOLD
 
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
         for generation in range(num_generations + 1):
@@ -62,22 +68,50 @@ def run_simulation(num_generations, pop_size):
             for i in range(pop_size):
                 population[i].fitness = scores[i]
 
+            # Speciation
+            species_reps = []
+            species_members = collections.defaultdict(list)
+            
+            for network in population:
+                found_species = False
+                for s_idx, rep in enumerate(species_reps):
+                    if network.distance_to(rep) < compatibility_threshold:
+                        species_members[s_idx].append(network)
+                        network.species_id = s_idx
+                        found_species = True
+                        break
+                if not found_species:
+                    s_idx = len(species_reps)
+                    species_reps.append(network)
+                    species_members[s_idx].append(network)
+                    network.species_id = s_idx
+
+            target_species = 8
+            if len(species_reps) > target_species:
+                compatibility_threshold += 0.1
+            elif len(species_reps) < target_species:
+                compatibility_threshold -= 0.1
+            compatibility_threshold = max(0.5, compatibility_threshold)
+
+            # Calculate adjusted fitness
+            for network in population:
+                species_size = len(species_members[network.species_id])
+                network.adjusted_fitness = network.fitness / species_size
+
             # all networks have a fitness score now, copy elites exactly, mutate some elites, mutate some commoners
-            population.sort(key=lambda n: n.fitness, reverse=True)
+            population.sort(key=lambda n: n.adjusted_fitness, reverse=True)
+            best_raw = max(population, key=lambda n: n.fitness)
 
-            good_performer = population[int(0.10 * pop_size)]
+            good_performer_raw = sorted([n.fitness for n in population], reverse=True)[int(0.10 * pop_size)]
 
-            if good_performer.fitness > NEXT_STAGE_CUTOFF:
+            if good_performer_raw > NEXT_STAGE_CUTOFF:
                 current_variance = min(current_variance + CURRICULUM_STEP, 1.0)
                 print(f"Variance updated to {current_variance:>5.5f} in Gen {generation}")
 
 
-            if generation % 100 == 0:
-                print(f"Generation {generation:>4} Distribution :{population[-1].fitness:>5.0f} "
-                      f"{population[int(0.75 * pop_size)].fitness:>5.0f} "
-                      f"{population[int(0.5 * pop_size)].fitness:>5.0f} "
-                      f"{population[int(0.25 * pop_size)].fitness:>5.0f} "
-                      f" {population[0].fitness:>5.0f}")
+            if generation % 50 == 0:
+                print(f"Generation {generation:>4} | Species: {len(species_reps)} | Best Raw Fitness: {best_raw.fitness:>5.0f}")
+                print(f"Top Adj. Fit: {population[0].adjusted_fitness:>5.0f} | Median Adj. Fit: {population[int(0.5 * pop_size)].adjusted_fitness:>5.0f}")
 
                 filename = f"saved_networks/champion_gen_{generation}.pkl"
                 with open(filename, "wb") as f:
@@ -122,5 +156,13 @@ def run_simulation(num_generations, pop_size):
     return population[0] # the best network of all time!!!!
 
 if __name__ == "__main__":
+    pr = cProfile.Profile()
+    pr.enable()
     run_simulation(GENERATIONS, POPULATION)
-
+    pr.disable()
+    
+    s = io.StringIO()
+    sortby = 'cumulative'
+    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+    ps.print_stats(25)
+    print(s.getvalue())

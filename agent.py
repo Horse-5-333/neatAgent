@@ -62,6 +62,8 @@ class Network:
         self.neurons = neurons_list
         self.connections = connections_list
         self.fitness = None
+        self.adjusted_fitness = None
+        self.species_id = None
 
         self.neuron_dict = {n.id: n for n in self.neurons}
         self.execution_order = self.compute_order()
@@ -76,6 +78,32 @@ class Network:
             in_syn_weights = [(s.input_id, s.weight) for s in syns]
             instructions.append((n_id, neuron.bias, in_syn_weights))
         return instructions
+
+    def distance_to(self, other_network, c1=1.0, c3=0.4):
+        my_synapses = {s.innovation: s for s in self.connections}
+        other_synapses = {s.innovation: s for s in other_network.connections}
+
+        all_innovations = set(my_synapses.keys()) | set(other_synapses.keys())
+        
+        N = max(len(my_synapses), len(other_synapses))
+        if N < 20: 
+            N = 1.0 # Standard NEAT logic, don't normalize small networks
+
+        disjoint_excess = 0
+        weight_diff_sum = 0.0
+        matching = 0
+
+        for inno in all_innovations:
+            if inno in my_synapses and inno in other_synapses:
+                matching += 1
+                weight_diff_sum += abs(my_synapses[inno].weight - other_synapses[inno].weight)
+            else:
+                disjoint_excess += 1
+
+        avg_weight_diff = weight_diff_sum / matching if matching > 0 else 0.0
+
+        return (c1 * disjoint_excess / N) + (c3 * avg_weight_diff)
+
         
     @classmethod
     def crossover(cls, parent1, parent2):

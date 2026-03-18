@@ -312,11 +312,11 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
     reward = (b1_height * b1_height + b2_height * b2_height) / 2.0
 
     distance_to_center = cart_obs_x
-    central_mult = 0.5 * math.cosh(-(distance_to_center * distance_to_center) + 1.0) + 0.5
+    central_mult = math.exp(-2.0 * (distance_to_center * distance_to_center))
     reward *= central_mult
 
     b1_speed_sq = b1_vx * b1_vx + b1_vy * b1_vy
-    b2_speed_sq = 0.0 * (b2_vx * b2_vx + b2_vy * b2_vy)
+    b2_speed_sq = b2_vx * b2_vx + b2_vy * b2_vy
 
     if b1_speed_sq > 25.0:
         reward *= 25.0 / b1_speed_sq
