@@ -16,6 +16,10 @@ class Synapse:
         self.weight = weight
         self.innovation = innovation
 
+    def clone(self):
+        # Manually instantiating a new object is 10x-100x faster than deepcopy
+        return Synapse(self.input_id, self.output_id, self.weight, self.innovation, self.enabled)
+
     def __eq__(self, other):
         return True if (self.input_id == other.input_id and self.output_id == other.output_id) else False
 

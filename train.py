@@ -91,7 +91,7 @@ def run_simulation(num_generations, pop_size):
                 compatibility_threshold += 0.1
             elif len(species_reps) < target_species:
                 compatibility_threshold -= 0.1
-            compatibility_threshold = max(0.5, compatibility_threshold)
+            compatibility_threshold = min(max(0.5, compatibility_threshold), 5.0)
 
             # Calculate adjusted fitness
             for network in population:
