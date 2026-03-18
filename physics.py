@@ -323,11 +323,15 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
     if b2_speed_sq > 25.0:
         reward *= 25.0 / b2_speed_sq
 
+    frame = False
+    if b1_y > TRACK_HEIGHT:
+        frame = True
+
     return (cart_x, cart_v_x, 
             b1_x, b1_y, b1_vx, b1_vy, 
             b2_x, b2_y, b2_vx, b2_vy, 
             cart_obs_x, cart_obs_v, theta, v, phi, w, 
-            reward)
+            reward, frame)
 
 class DoublePendulumEnv:
     def __init__(self, start_var=0):

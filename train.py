@@ -19,8 +19,8 @@ DT = 1/60.0
 ELITE_PERCENTILE = 0.1 # top creatures always advance
 ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
 CURRICULUM_STEP = 0.005 # parameter to control difficulty progression speed
-NEXT_STAGE_CUTOFF = 2000 # reward required for 95% percentile, to continue cirriculum
-COMPATIBILITY_THRESHOLD = 3.0
+NEXT_STAGE_CUTOFF = 1200 # reward required for 95% percentile, to continue cirriculum
+COMPATIBILITY_THRESHOLD = 15.0
 
 def evaluate_single_network(network_flat, run_steps, generation_seed, start_var):
     # Ensure all networks in a generation face the exact same random environmental start
@@ -29,16 +29,18 @@ def evaluate_single_network(network_flat, run_steps, generation_seed, start_var)
     env = DoublePendulumEnv(start_var=start_var)
     obs = env.reset()
     fitness = 0.0
+    frames = 0
 
     # 2. Run the simulation
     for _ in range(run_steps):
         action = fast_forward_pass_flat(network_flat, obs)
-        obs, reward = env.step(action)
+        obs, reward, frame = env.step(action)
         fitness += reward
+        frames += 1
 
     # 3. We ONLY return the score.
     # (Returning the whole brain is heavy and slows down the pipe)
-    return fitness
+    return fitness, frames
 
 
 
@@ -63,10 +65,11 @@ def run_simulation(num_generations, pop_size):
                                 generation_seed=gen_seed,
                                 start_var=current_variance)
             flat_pop = [bench.export_flat() for bench in population]
-            scores = list(executor.map(eval_func, flat_pop, chunksize=12))
+            scores, frames = list(executor.map(eval_func, flat_pop, chunksize=12))
 
             for i in range(pop_size):
                 population[i].fitness = scores[i]
+                population[i].frames = frames[i]
 
             # Speciation
             species_reps = []
@@ -91,7 +94,7 @@ def run_simulation(num_generations, pop_size):
                 compatibility_threshold += 0.1
             elif len(species_reps) < target_species:
                 compatibility_threshold -= 0.1
-            compatibility_threshold = min(max(0.5, compatibility_threshold), 5.0)
+            compatibility_threshold = min(max(0.05, compatibility_threshold), 8.0)
 
             # Calculate adjusted fitness
             for network in population:
@@ -102,7 +105,7 @@ def run_simulation(num_generations, pop_size):
             population.sort(key=lambda n: n.adjusted_fitness, reverse=True)
             best_raw = max(population, key=lambda n: n.fitness)
 
-            good_performer_raw = sorted([n.fitness for n in population], reverse=True)[int(0.10 * pop_size)]
+            good_performer_raw = sorted([n.frames for n in population], reverse=True)[int(0.10 * pop_size)]
 
             if good_performer_raw > NEXT_STAGE_CUTOFF:
                 current_variance = min(current_variance + CURRICULUM_STEP, 1.0)

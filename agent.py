@@ -65,6 +65,7 @@ class Network:
         self.fitness = None
         self.adjusted_fitness = None
         self.species_id = None
+        self.frames = None
 
         self.neuron_dict = {n.id: n for n in self.neurons}
         self.execution_order = self.compute_order()
