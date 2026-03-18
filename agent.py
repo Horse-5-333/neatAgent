@@ -145,6 +145,10 @@ class Network:
                 incoming[synapse.output_id].append(synapse)
         return incoming
 
+    def export_flat(self):
+        return tuple(self.flattened_execution)
+
+
     def forward_pass(self, observations):
         neuron_values = {
             0: observations[0],  # cart x
@@ -270,3 +274,21 @@ def gen0_network():
 
     # 4. Initialize and return the compiled Network
     return Network(neurons, synapses)
+
+def fast_forward_pass_flat(flat_execution, obs):
+    neuron_values = {
+        0: obs[0],  # cart x
+        1: obs[1],  # cart v
+        2: obs[2],  # theta
+        3: obs[3],  # v
+        4: obs[4],  # phi
+        5: obs[5]   # w
+    }
+
+    for n_id, bias, syns in flat_execution:
+        incoming_sum = bias
+        for in_id, weight in syns:
+            incoming_sum += neuron_values[in_id] * weight
+        neuron_values[n_id] = math.tanh(incoming_sum)
+
+    return neuron_values[6]

@@ -5,7 +5,7 @@ from copy import deepcopy
 import pickle
 import os
 from functools import partial
-from agent import gen0_network, InnovationManager, Network
+from agent import gen0_network, InnovationManager, Network, fast_forward_pass_flat
 from physics import DoublePendulumEnv
 
 POPULATION = 96
@@ -17,7 +17,7 @@ ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest 
 CURRICULUM_STEP = 0.0025 # parameter to control difficulty progression speed
 NEXT_STAGE_CUTOFF = 1200
 
-def evaluate_single_network(network, run_steps, generation_seed, gravity, friction):
+def evaluate_single_network(network_flat, run_steps, generation_seed, gravity, friction):
     # Ensure all networks in a generation face the exact same random environmental start
     random.seed(generation_seed)
     
@@ -27,7 +27,7 @@ def evaluate_single_network(network, run_steps, generation_seed, gravity, fricti
 
     # 2. Run the simulation
     for _ in range(run_steps):
-        action = network.forward_pass(obs)
+        action = fast_forward_pass_flat(network_flat, obs)
         obs, reward = env.step(action)
         fitness += reward
 
@@ -48,12 +48,13 @@ def run_simulation(num_generations, pop_size):
     current_gravity = 9.81 * 0.05
     current_friction = 1.0
 
-    with concurrent.futures.process.ProcessPoolExecutor() as executor:
+    with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
         for generation in range(num_generations + 1):
             
             gen_seed = random.randint(0, 100000000)
             eval_func = partial(evaluate_single_network, run_steps=steps, generation_seed=gen_seed, gravity=current_gravity, friction=current_friction)
-            scores = list(executor.map(eval_func, population, chunksize=12))
+            flat_pop = [bench.export_flat() for bench in population]
+            scores = list(executor.map(eval_func, flat_pop, chunksize=12))
 
             for i in range(pop_size):
                 population[i].fitness = scores[i]

@@ -1,5 +1,6 @@
 import math
 import random
+from numba import njit
 
 
 SCREEN_WIDTH = 14  # meters
@@ -168,6 +169,163 @@ def resolve_collision(m1, m2):
         m2.v -= impulse_vec / m2.mass
 
 
+@njit
+def fast_physics_step(action_force, dt, gravity, friction_multiplier,
+                      cart_x, cart_v_x, cart_mass,
+                      b1_x, b1_y, b1_vx, b1_vy, b1_mass, b1_rest,
+                      b2_x, b2_y, b2_vx, b2_vy, b2_mass, b2_rest):
+    sub_steps = 3
+    sub_dt = dt / sub_steps
+
+    SCREEN_WIDTH_HALF = 7.0
+    TRACK_LENGTH_HALF = 4.0
+    TRACK_HEIGHT = 10.0
+    MAX_FORCE = 600.0
+    EPSILON = 1e-6
+
+    for _ in range(sub_steps):
+        cart_ax = (MAX_FORCE * action_force) / cart_mass
+        b1_ax = 0.0
+        b1_ay = -gravity
+        b2_ax = 0.0
+        b2_ay = -gravity
+
+        if SCREEN_WIDTH_HALF - TRACK_LENGTH_HALF > cart_x:
+            cart_x = SCREEN_WIDTH_HALF - TRACK_LENGTH_HALF
+            cart_v_x = -1.0 * cart_v_x
+        if SCREEN_WIDTH_HALF + TRACK_LENGTH_HALF < cart_x:
+            cart_x = SCREEN_WIDTH_HALF + TRACK_LENGTH_HALF
+            cart_v_x = -1.0 * cart_v_x
+
+        drag_coeff = 0.05 * friction_multiplier
+
+        b1_v_mag = math.hypot(b1_vx, b1_vy)
+        b1_ax -= drag_coeff * b1_v_mag * b1_vx / b1_mass
+        b1_ay -= drag_coeff * b1_v_mag * b1_vy / b1_mass
+
+        b2_v_mag = math.hypot(b2_vx, b2_vy)
+        b2_ax -= drag_coeff * b2_v_mag * b2_vx / b2_mass
+        b2_ay -= drag_coeff * b2_v_mag * b2_vy / b2_mass
+
+        rolling_friction = 2.0 * friction_multiplier
+        cart_ax -= (rolling_friction * cart_v_x) / cart_mass
+
+        # Joint Friction (Cart & Bob 1)
+        rod_x = b1_x - cart_x
+        rod_y = b1_y - TRACK_HEIGHT
+        rod_mag = math.hypot(rod_x, rod_y)
+
+        if rod_mag < EPSILON:
+            rod_dir_x, rod_dir_y = 0.0, 1.0
+        else:
+            rod_dir_x, rod_dir_y = rod_x / rod_mag, rod_y / rod_mag
+            
+        tangent_x, tangent_y = -rod_dir_y, rod_dir_x
+
+        rel_v_x = b1_vx - cart_v_x
+        rel_v_y = b1_vy - 0.0
+        swing_speed = rel_v_x * tangent_x + rel_v_y * tangent_y
+
+        joint_friction_coeff = 0.8 * friction_multiplier
+        joint_f_x = tangent_x * (-joint_friction_coeff * swing_speed)
+        joint_f_y = tangent_y * (-joint_friction_coeff * swing_speed)
+
+        b1_ax += joint_f_x / b1_mass
+        b1_ay += joint_f_y / b1_mass
+        cart_ax -= joint_f_x / cart_mass
+
+        # Constraint 1: Cart to Bob
+        overlap = b1_rest - rod_mag
+
+        k = 10000.0
+        d = 100.0
+
+        spring_force_mag = k * overlap
+        damping_force_mag = -d * (rel_v_x * rod_dir_x + rel_v_y * rod_dir_y)
+
+        total_rod_force_x = rod_dir_x * (spring_force_mag + damping_force_mag)
+        total_rod_force_y = rod_dir_y * (spring_force_mag + damping_force_mag)
+
+        cart_ax -= total_rod_force_x / cart_mass
+        b1_ax += total_rod_force_x / b1_mass
+        b1_ay += total_rod_force_y / b1_mass
+
+        # Constraint 2: Bob to Bob2
+        rod2_x = b2_x - b1_x
+        rod2_y = b2_y - b1_y
+        rod2_mag = math.hypot(rod2_x, rod2_y)
+
+        if rod2_mag < EPSILON:
+            rod2_dir_x, rod2_dir_y = 0.0, 1.0
+        else:
+            rod2_dir_x, rod2_dir_y = rod2_x / rod2_mag, rod2_y / rod2_mag
+
+        rel_v2_x = b2_vx - b1_vx
+        rel_v2_y = b2_vy - b1_vy
+
+        overlap2 = b2_rest - rod2_mag
+
+        spring_force_mag2 = k * overlap2
+        damping_force_mag2 = -d * (rel_v2_x * rod2_dir_x + rel_v2_y * rod2_dir_y)
+
+        total_rod_force2_x = rod2_dir_x * (spring_force_mag2 + damping_force_mag2)
+        total_rod_force2_y = rod2_dir_y * (spring_force_mag2 + damping_force_mag2)
+
+        b1_ax -= total_rod_force2_x / b1_mass
+        b1_ay -= total_rod_force2_y / b1_mass
+        b2_ax += total_rod_force2_x / b2_mass
+        b2_ay += total_rod_force2_y / b2_mass
+
+        # Integration
+        cart_v_x += cart_ax * sub_dt
+        cart_x += cart_v_x * sub_dt
+
+        b1_vx += b1_ax * sub_dt
+        b1_vy += b1_ay * sub_dt
+        b1_x += b1_vx * sub_dt
+        b1_y += b1_vy * sub_dt
+
+        b2_vx += b2_ax * sub_dt
+        b2_vy += b2_ay * sub_dt
+        b2_x += b2_vx * sub_dt
+        b2_y += b2_vy * sub_dt
+
+    # Calculate rewards and obs
+    cart_obs_x = (2.0 * cart_x - 14.0) / 8.0
+    cart_obs_v = math.tanh(cart_v_x / 6.0)
+
+    rod1_x = b1_x - cart_x
+    rod1_y = b1_y - TRACK_HEIGHT
+    theta = math.atan2(rod1_y, rod1_x) / math.pi
+    v = math.tanh(math.hypot(b1_vx, b1_vy) / 6.0)
+
+    rod2_x = b2_x - b1_x
+    rod2_y = b2_y - b1_y
+    phi = math.atan2(rod2_y, rod2_x) / math.pi
+    w = math.tanh(math.hypot(b2_vx, b2_vy) / 6.0)
+
+    b1_height = (b1_y - (TRACK_HEIGHT - b1_rest)) / b1_rest
+    b2_height = ((b2_y - (TRACK_HEIGHT - b1_rest - b2_rest)) / (b1_rest + b2_rest))
+    reward = (b1_height * b1_height + b2_height * b2_height) / 2.0
+
+    distance_to_center = cart_obs_x
+    central_mult = 0.5 * math.cosh(-(distance_to_center * distance_to_center) + 1.0) + 0.5
+    reward *= central_mult
+
+    b1_speed_sq = b1_vx * b1_vx + b1_vy * b1_vy
+    b2_speed_sq = 0.0 * (b2_vx * b2_vx + b2_vy * b2_vy)
+
+    if b1_speed_sq > 25.0:
+        reward *= 25.0 / b1_speed_sq
+    if b2_speed_sq > 25.0:
+        reward *= 25.0 / b2_speed_sq
+
+    return (cart_x, cart_v_x, 
+            b1_x, b1_y, b1_vx, b1_vy, 
+            b2_x, b2_y, b2_vx, b2_vy, 
+            cart_obs_x, cart_obs_v, theta, v, phi, w, 
+            reward)
+
 class DoublePendulumEnv:
     def __init__(self, gravity=9.81*0.8, friction_multiplier=0.2):
         self.gravity = gravity
@@ -202,144 +360,20 @@ class DoublePendulumEnv:
         return self.observations()
 
     def step(self, action_force, dt=1/60.0):
-        sub_steps = 3
-        sub_dt = dt / sub_steps
+        (self.cart.s.x, self.cart.v.x,
+         self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y,
+         self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y,
+         obs0, obs1, obs2, obs3, obs4, obs5, reward) = fast_physics_step(
+             action_force, dt, self.gravity, self.friction_multiplier,
+             self.cart.s.x, self.cart.v.x, self.cart.mass,
+             self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y, self.bob1.mass, self.bob1_rest_length,
+             self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y, self.bob2.mass, self.bob2_rest_length
+         )
+         
+        self.cart.s.y = 10.0
+        self.cart.v.y = 0.0
 
-        for _ in range(sub_steps):
-            self.cart.apply_force(MAX_FORCE * Vec(action_force, 0))
-            # check if cart is off the track
-            if SCREEN_WIDTH / 2 - TRACK_LENGTH / 2 > self.cart.s.x:
-                self.cart.s.x = SCREEN_WIDTH / 2 - TRACK_LENGTH / 2
-                self.cart.v.x = -1 * self.cart.v.x
-            if SCREEN_WIDTH / 2 + TRACK_LENGTH / 2 < self.cart.s.x:
-                self.cart.s.x = SCREEN_WIDTH / 2 + TRACK_LENGTH / 2
-                self.cart.v.x = -1 * self.cart.v.x
-
-            # --- GRAVITY & DRAG ---
-            drag_coeff = 0.05 * self.friction_multiplier
-
-            # Bob 1
-            self.bob1.a.y -= self.gravity
-            b1_v_mag = self.bob1.v.magnitude
-            self.bob1.a.x -= drag_coeff * b1_v_mag * self.bob1.v.x / self.bob1.mass
-            self.bob1.a.y -= drag_coeff * b1_v_mag * self.bob1.v.y / self.bob1.mass
-
-            # Bob 2
-            self.bob2.a.y -= self.gravity
-            b2_v_mag = self.bob2.v.magnitude
-            self.bob2.a.x -= drag_coeff * b2_v_mag * self.bob2.v.x / self.bob2.mass
-            self.bob2.a.y -= drag_coeff * b2_v_mag * self.bob2.v.y / self.bob2.mass
-
-            # Cart friction
-            rolling_friction = 2.0 * self.friction_multiplier
-            self.cart.apply_force(self.cart.v * -rolling_friction)
-
-            # --- JOINT FRICTION (Cart & Bob 1) ---
-            rod_x = self.bob1.s.x - self.cart.s.x
-            rod_y = self.bob1.s.y - self.cart.s.y
-            rod_mag = math.hypot(rod_x, rod_y)
-            
-            if rod_mag < EPSILON:
-                rod_dir_x, rod_dir_y = 0, 1
-            else:
-                rod_dir_x, rod_dir_y = rod_x / rod_mag, rod_y / rod_mag
-                
-            tangent_x, tangent_y = -rod_dir_y, rod_dir_x
-
-            rel_v_x = self.bob1.v.x - self.cart.v.x
-            rel_v_y = self.bob1.v.y - self.cart.v.y
-            swing_speed = rel_v_x * tangent_x + rel_v_y * tangent_y
-
-            joint_friction_coeff = 0.8 * self.friction_multiplier
-            joint_f_x = tangent_x * (-joint_friction_coeff * swing_speed)
-            joint_f_y = tangent_y * (-joint_friction_coeff * swing_speed)
-            joint_friction = Vec(joint_f_x, joint_f_y)
-
-            self.bob1.apply_force(joint_friction)
-            self.cart.apply_force(joint_friction * -1)
-
-            # --- CONSTRAINT 1: Cart to Bob ---
-            rod_x = self.bob1.s.x - self.cart.s.x
-            rod_y = self.bob1.s.y - self.cart.s.y
-            rod_mag = math.hypot(rod_x, rod_y)
-            if rod_mag < EPSILON:
-                rod_dir = Vec(0, 1)
-            else:
-                rod_dir = Vec(rod_x / rod_mag, rod_y / rod_mag)
-
-            overlap = self.bob1_rest_length - rod_mag
-
-            k = 10000
-            d = 100
-
-            spring_force_mag = k * overlap
-            rel_v_x = self.bob1.v.x - self.cart.v.x
-            rel_v_y = self.bob1.v.y - self.cart.v.y
-            damping_force_mag = -d * (rel_v_x * rod_dir.x + rel_v_y * rod_dir.y)
-
-            total_rod_force = rod_dir * (spring_force_mag + damping_force_mag)
-
-            self.cart.apply_force(total_rod_force * -1)
-            self.bob1.apply_force(total_rod_force)
-
-            # --- CONSTRAINT 2: Bob to Bob2 ---
-            rod2_x = self.bob2.s.x - self.bob1.s.x
-            rod2_y = self.bob2.s.y - self.bob1.s.y
-            rod2_mag = math.hypot(rod2_x, rod2_y)
-            if rod2_mag < EPSILON:
-                rod2_dir = Vec(0, 1)
-            else:
-                rod2_dir = Vec(rod2_x / rod2_mag, rod2_y / rod2_mag)
-
-            rel_v2_x = self.bob2.v.x - self.bob1.v.x
-            rel_v2_y = self.bob2.v.y - self.bob1.v.y
-
-            overlap2 = self.bob2_rest_length - rod2_mag
-
-            spring_force_mag2 = k * overlap2
-            damping_force_mag2 = -d * (rel_v2_x * rod2_dir.x + rel_v2_y * rod2_dir.y)
-
-            total_rod_force2 = rod2_dir * (spring_force_mag2 + damping_force_mag2)
-
-            self.bob1.apply_force(total_rod_force2 * -1)
-            self.bob2.apply_force(total_rod_force2)
-
-            # --- INTEGRATION & KINEMATIC LOCKS ---
-            self.cart.a.y = 0.0
-
-            # Pre-integration forces are locked
-            self.cart.update(sub_dt)
-            self.bob1.update(sub_dt)
-            self.bob2.update(sub_dt)
-
-            # Hard kinematic lock the rail exactly after v, s updates
-            self.cart.s.y = TRACK_HEIGHT
-            self.cart.v.y = 0.0
-
-        # calculate rewards
-        obs = self.observations()
-
-        bob1_height = (self.bob1.s.y - (TRACK_HEIGHT - self.bob1_rest_length)) / self.bob1_rest_length
-        bob2_height = ((self.bob2.s.y - (TRACK_HEIGHT - self.bob1_rest_length - self.bob2_rest_length))
-                       / (self.bob1_rest_length + self.bob2_rest_length))
-        # delta_h_to_threshold = self.bob2.s.y - TRACK_HEIGHT - 0.9 * (self.bob1_rest_length + self.bob2_rest_length)
-        reward = (bob1_height ** 2 +  bob2_height ** 2) / 2.0
-
-        distance_to_center = obs[0]
-        central_mult = 0.5 * math.cosh( -(distance_to_center ** 2) + 1) + 0.5
-        reward *= central_mult
-
-        # PREVENT RAPID SPAMMING WITH SPEED PENALTY
-        # Punish both bob extreme speeds
-        b1_speed_sq = self.bob1.v.magnitude_squared
-        b2_speed_sq = 0 * self.bob2.v.magnitude_squared
-        # Penalize softly above a certain speed
-        if b1_speed_sq > 25.0:
-            reward *= 25.0 / b1_speed_sq
-        if b2_speed_sq > 25.0:
-            reward *= 25.0 / b2_speed_sq
-
-        return obs, reward
+        return [obs0, obs1, obs2, obs3, obs4, obs5], reward
 
     def observations(self):
         cart_x = (2*self.cart.s.x - SCREEN_WIDTH)/TRACK_LENGTH
