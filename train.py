@@ -41,7 +41,7 @@ def evaluate_single_network(network_flat, run_steps, generation_seed, start_var)
 
     # 3. We ONLY return the score.
     # (Returning the whole brain is heavy and slows down the pipe)
-    return max(0.0, fitness), frames
+    return fitness, frames
 
 
 
@@ -58,6 +58,9 @@ def run_simulation(num_generations, pop_size):
     current_variance = 0.05
     compatibility_threshold = COMPATIBILITY_THRESHOLD
 
+    next_species_id = 0
+    species_reps = {}
+
     gen_iter = range(num_generations + 1) if num_generations > 0 else itertools.count()
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
         for generation in gen_iter:
@@ -72,29 +75,46 @@ def run_simulation(num_generations, pop_size):
             for i in range(pop_size):
                 population[i].fitness, population[i].frames = eval_results[i]
 
-            # Speciation
-            species_reps = []
+            # Speciation Continuity Fix
             species_members = collections.defaultdict(list)
             
             for network in population:
                 found_species = False
-                for s_idx, rep in enumerate(species_reps):
+                for s_idx, rep in species_reps.items():
                     if network.distance_to(rep) < compatibility_threshold:
                         species_members[s_idx].append(network)
                         network.species_id = s_idx
                         found_species = True
                         break
                 if not found_species:
-                    s_idx = len(species_reps)
-                    species_reps.append(network)
+                    s_idx = next_species_id
+                    next_species_id += 1
+                    species_reps[s_idx] = network
                     species_members[s_idx].append(network)
                     network.species_id = s_idx
 
+            # Keep the species representatives for the next generation completely locked
+            # to the founding network to prevent center drifting and static fracturing
+            new_species_reps = {}
+            for s_idx, members in species_members.items():
+                if members:
+                    new_species_reps[s_idx] = species_reps[s_idx]
+            species_reps = new_species_reps
+
             target_species = 15
-            if len(species_reps) > target_species:
-                compatibility_threshold += 0.5
-            elif len(species_reps) < target_species:
-                compatibility_threshold -= 0.5
+            species_diff = len(species_reps) - target_species
+
+            step_size = 0.3
+            if abs(species_diff) > 5:
+                step_size = 1.0
+            elif abs(species_diff) > 2:
+                step_size = 0.5
+
+            if species_diff > 0:
+                compatibility_threshold += step_size
+            elif species_diff < 0:
+                compatibility_threshold -= step_size
+
             compatibility_threshold = max(0.5, compatibility_threshold)
 
             # Calculate adjusted fitness
@@ -188,11 +208,13 @@ def run_simulation(num_generations, pop_size):
             inno_tracker.start_new_generation()
 
             for network in next_gen_children:
-                network.mutate_weights()
+                # 80% chance of a child undergoing weight mutation
+                if random.random() < 0.8:
+                    network.mutate_weights()
 
-                if random.random() <= 0.05:
+                if random.random() <= 0.03:  # Lowered from 0.05
                     network.mutate_add_neuron(inno_tracker)
-                if random.random() <= 0.1:
+                if random.random() <= 0.05:  # Lowered from 0.10
                     network.mutate_add_synapse(inno_tracker)
 
             population = next_gen

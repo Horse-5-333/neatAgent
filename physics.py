@@ -5,14 +5,17 @@ from numba.parfors.parfor_lowering import replace_var_with_array_in_block
 
 SCREEN_WIDTH = 14  # meters
 SCREEN_HEIGHT = 16
-PPM = 50 # pixels per meter
+PPM = 100 # pixels per meter
 EPSILON = 1e-6
-TRACK_HEIGHT = 10
+TRACK_HEIGHT = 9
 TRACK_LENGTH = 8
-MAX_FORCE = 600 # N
+MAX_FORCE = 8 # N
+SCREEN_WIDTH_HALF = SCREEN_WIDTH / 2
+SCREEN_HEIGHT_HALF = SCREEN_HEIGHT / 2
+TRACK_LENGTH_HALF = TRACK_LENGTH / 2
 
-GRAVITY = 9.81
-FRICTION_MULT = 0.05
+GRAVITY = 2
+FRICTION_MULT = .5
 
 class Vec:
     def __init__(self, x, y):
@@ -178,14 +181,13 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
                       b1_x, b1_y, b1_vx, b1_vy, b1_mass, b1_rest,
                       b2_x, b2_y, b2_vx, b2_vy, b2_mass, b2_rest,
                       start_var):
-    sub_steps = 3
+    sub_steps = 6
     sub_dt = dt / sub_steps
 
-    SCREEN_WIDTH_HALF = 7.0
-    TRACK_LENGTH_HALF = 4.0
-    TRACK_HEIGHT = 10.0
-    MAX_FORCE = 600.0
-    EPSILON = 1e-6
+    # SCREEN_WIDTH_HALF = 7.0
+    # TRACK_LENGTH_HALF = 4.0
+    # MAX_FORCE = 600.0
+    # EPSILON = 1e-6
 
     for _ in range(sub_steps):
         cart_ax = (MAX_FORCE * action_force) / cart_mass
@@ -196,10 +198,10 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
 
         if SCREEN_WIDTH_HALF - TRACK_LENGTH_HALF > cart_x:
             cart_x = SCREEN_WIDTH_HALF - TRACK_LENGTH_HALF
-            cart_v_x = -1.0 * cart_v_x
+            cart_v_x = 0 * cart_v_x
         if SCREEN_WIDTH_HALF + TRACK_LENGTH_HALF < cart_x:
             cart_x = SCREEN_WIDTH_HALF + TRACK_LENGTH_HALF
-            cart_v_x = -1.0 * cart_v_x
+            cart_v_x = 0 * cart_v_x
 
         drag_coeff = 0.05 * friction_multiplier
 
@@ -241,11 +243,12 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
         # Constraint 1: Cart to Bob
         overlap = b1_rest - rod_mag
 
-        k = 10000.0
-        d = 100.0
+        m_eff1 = (cart_mass * b1_mass) / (cart_mass + b1_mass)
+        k1 = 50000.0 * m_eff1
+        d1 = min(500.0 * m_eff1, 1.0 * m_eff1 / sub_dt)
 
-        spring_force_mag = k * overlap
-        damping_force_mag = -d * (rel_v_x * rod_dir_x + rel_v_y * rod_dir_y)
+        spring_force_mag = k1 * overlap
+        damping_force_mag = -d1 * (rel_v_x * rod_dir_x + rel_v_y * rod_dir_y)
 
         total_rod_force_x = rod_dir_x * (spring_force_mag + damping_force_mag)
         total_rod_force_y = rod_dir_y * (spring_force_mag + damping_force_mag)
@@ -269,8 +272,12 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
 
         overlap2 = b2_rest - rod2_mag
 
-        spring_force_mag2 = k * overlap2
-        damping_force_mag2 = -d * (rel_v2_x * rod2_dir_x + rel_v2_y * rod2_dir_y)
+        m_eff2 = (b1_mass * b2_mass) / (b1_mass + b2_mass)
+        k2 = 50000.0 * m_eff2
+        d2 = min(500.0 * m_eff2, 1.0 * m_eff2 / sub_dt)
+
+        spring_force_mag2 = k2 * overlap2
+        damping_force_mag2 = -d2 * (rel_v2_x * rod2_dir_x + rel_v2_y * rod2_dir_y)
 
         total_rod_force2_x = rod2_dir_x * (spring_force_mag2 + damping_force_mag2)
         total_rod_force2_y = rod2_dir_y * (spring_force_mag2 + damping_force_mag2)
@@ -300,36 +307,50 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
 
     rod1_x = b1_x - cart_x
     rod1_y = b1_y - TRACK_HEIGHT
-    theta = math.atan2(rod1_y, rod1_x) / math.pi
-    v = math.tanh(math.hypot(b1_vx, b1_vy) / 6.0)
+    theta = math.atan2(rod1_y, rod1_x)
+    sin_theta = math.sin(theta)
+    cos_theta = math.cos(theta)
+    v_x = math.tanh(b1_vx / 6.0)
+    v_y = math.tanh(b1_vy / 6.0)
 
     rod2_x = b2_x - b1_x
     rod2_y = b2_y - b1_y
-    phi = math.atan2(rod2_y, rod2_x) / math.pi
-    w = math.tanh(math.hypot(b2_vx, b2_vy) / 6.0)
+    phi = math.atan2(rod2_y, rod2_x)
+    sin_phi = math.sin(phi)
+    cos_phi = math.cos(phi)
+    w_x = math.tanh(b2_vx / 6.0)
+    w_y = math.tanh(b2_vy / 6.0)
 
-    if b2_y > TRACK_HEIGHT + b1_rest + b2_rest - 0.5:
-        reward = +2.0
-    elif b2_y > TRACK_HEIGHT + b1_rest:
-        reward = +1.0
-    elif b2_y > TRACK_HEIGHT:
-        reward = 0.0
-    elif b2_y > TRACK_HEIGHT - (b1_rest / 2.0):
-        reward = -0.5
-    else:
-        reward = -2.0
+    max_length = b1_rest + b2_rest
+    # Normalize height to roughly [-1.0, 1.0]
+    normalized_height = (b2_y - TRACK_HEIGHT) / max_length
+
+    # 1. Height is still the primary goal
+    reward = normalized_height
+
+    # 2. Centering Penalty: Softly pull it to the middle of the track (obs0 is cart_obs_x)
+    reward -= 0.1 * abs(cart_obs_x)
+
+    # 3. Effort Penalty: Softly discourage high speeds
+    reward -= 0.05 * abs(cart_v_x)
+
+    # 4. Smoothness Penalty: Severely punish high-frequency jitter
+    delta_force = action_force
+    reward -= 0.25 * (delta_force ** 2)
+
+    # Keep the boundary penalty as a hard fail state
+    if cart_obs_x <= -0.85 or cart_obs_x >= 0.85:
+        reward -= 5.0
 
     frame = False
     if b1_y > TRACK_HEIGHT and b2_y > TRACK_HEIGHT + (b1_rest / 2.0):
         frame = True
 
-    if cart_obs_x < -0.90 or cart_obs_x > 0.90:
-        reward = -15.0
 
     return (cart_x, cart_v_x, 
             b1_x, b1_y, b1_vx, b1_vy, 
             b2_x, b2_y, b2_vx, b2_vy, 
-            cart_obs_x, cart_obs_v, theta, v, phi, w, 
+            cart_obs_x, cart_obs_v, sin_theta, cos_theta, v_x, v_y, sin_phi, cos_phi, w_x, w_y, 
             reward, frame)
 
 class DoublePendulumEnv:
@@ -340,32 +361,36 @@ class DoublePendulumEnv:
         self.bob2_rest_length = None
         self.bob1_rest_length = None
         self.cart = None
-        self.height_pts = 0.0
+        self.previous_action_force = 0.0
 
     def reset(self):
-        self.height_pts = 0.0
         track_home = Vec(SCREEN_WIDTH / 2, TRACK_HEIGHT)
 
-        side = random.choice([-1.0, 1.0])
-        base_angle_shift = self.start_var * math.pi * side
-        base_angle = 0.5 * math.pi + base_angle_shift
+
+        base_angle_shift = self.start_var * math.pi * random.choice([-1.0, 1.0])
+        base_theta = 0.5 * math.pi + base_angle_shift
+
+        base_angle_shift = self.start_var * math.pi * random.choice([-1.0, 1.0])
+        base_phi = 0.5 * math.pi + base_angle_shift
+
         
-        theta = [base_angle + random.uniform(-0.1, 0.1), base_angle + random.uniform(-0.1, 0.1)]
+        theta = [base_phi, base_theta]
 
         vel = [random.uniform(-3, 3), random.uniform(-5, 5)]
         vel = [self.start_var * v for v in vel]
 
-        self.bob1_rest_length = 3.0
-        self.bob2_rest_length = 3.0
+        self.bob1_rest_length = 0.5
+        self.bob2_rest_length = 0.5
         bob1_start_s = track_home + self.bob1_rest_length * Vec(math.cos(theta[0]), math.sin(theta[0]))
         bob2_start_s = bob1_start_s + self.bob2_rest_length * Vec(math.cos(theta[1]), math.sin(theta[1]))
         bob1_start_v = vel[0] * Vec(-math.sin(theta[0]), math.cos(theta[0]))
         bob2_start_v = bob1_start_v + vel[1] * Vec(-math.sin(theta[1]), math.cos(theta[1]))
 
 
-        self.cart = PtMass(mass=15.0, s=track_home, radius_m=0.3)
-        self.bob1 = PtMass(mass=5.0, s=bob1_start_s, v=bob1_start_v, radius_m=0.2)
-        self.bob2 = PtMass(mass=4.0, s=bob2_start_s, v=bob2_start_v, radius_m=0.2)
+        self.cart = PtMass(mass=1.0, s=track_home, radius_m=0.1)
+        self.bob1 = PtMass(mass=0.1, s=bob1_start_s, v=bob1_start_v, radius_m=0.075)
+        self.bob2 = PtMass(mass=0.1, s=bob2_start_s, v=bob2_start_v, radius_m=0.075)
+        self.previous_action_force = 0.0
 
         return self.observations()
 
@@ -373,7 +398,7 @@ class DoublePendulumEnv:
         (self.cart.s.x, self.cart.v.x,
          self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y,
          self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y,
-         obs0, obs1, obs2, obs3, obs4, obs5, reward, frame) = fast_physics_step(
+         obs0, obs1, obs2, obs3, obs4, obs5, obs6, obs7, obs8, obs9, reward, frame) = fast_physics_step(
              action_force, dt, GRAVITY, FRICTION_MULT,
              self.cart.s.x, self.cart.v.x, self.cart.mass,
              self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y, self.bob1.mass, self.bob1_rest_length,
@@ -381,33 +406,39 @@ class DoublePendulumEnv:
              self.start_var
          )
          
-        self.cart.s.y = 10.0
+        self.cart.s.y = TRACK_HEIGHT
         self.cart.v.y = 0.0
 
-        self.height_pts += reward
-        if self.height_pts < 0.0:
-            self.height_pts = 0.0
+        final_reward = reward
 
-        # Incorporate raw continuous bob height to eliminate flat gradient local minimums
-        final_reward = self.height_pts + (self.bob2.s.y / 5.0)
+        # Smoothness penalty: punishes sudden jumps in force
+        delta_force = abs(action_force - self.previous_action_force)
+        smoothness_penalty = (delta_force ** 2) * 0.5
+        final_reward -= smoothness_penalty
+        self.previous_action_force = action_force
 
         if obs0 <= -0.85 or obs0 >= 0.85:
             final_reward -= 5.0
-            self.height_pts = max(0.0, self.height_pts - 1.0)
 
-        return [obs0, obs1, obs2, obs3, obs4, obs5], final_reward, frame
+        return [obs0, obs1, obs2, obs3, obs4, obs5, obs6, obs7, obs8, obs9], final_reward, frame
 
     def observations(self):
         cart_x = (2*self.cart.s.x - SCREEN_WIDTH)/TRACK_LENGTH
         cart_v = math.tanh(self.cart.v.x / 6.0)  # attempt to give maximum info while normalize into [-1, 1]
 
         rod1 = self.bob1.s - self.cart.s
-        theta = math.atan2(rod1.y, rod1.x) / math.pi
-        v = math.tanh(self.bob1.v.magnitude / 6.0)
+        theta = math.atan2(rod1.y, rod1.x)
+        sin_theta = math.sin(theta)
+        cos_theta = math.cos(theta)
+        v_x = math.tanh(self.bob1.v.x / 6.0)
+        v_y = math.tanh(self.bob1.v.y / 6.0)
 
         rod2 = self.bob2.s - self.bob1.s
-        phi = math.atan2(rod2.y, rod2.x) / math.pi
-        w = math.tanh(self.bob2.v.magnitude / 6.0)
+        phi = math.atan2(rod2.y, rod2.x)
+        sin_phi = math.sin(phi)
+        cos_phi = math.cos(phi)
+        w_x = math.tanh(self.bob2.v.x / 6.0)
+        w_y = math.tanh(self.bob2.v.y / 6.0)
 
-        return [cart_x, cart_v, theta, v, phi, w]
+        return [cart_x, cart_v, sin_theta, cos_theta, v_x, v_y, sin_phi, cos_phi, w_x, w_y]
 

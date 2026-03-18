@@ -22,8 +22,8 @@ class Synapse:
 
 class InnovationManager:
     def __init__(self):
-        self.innovation_ct = 6 # gen0 syanpses already have their innovation numbers
-        self.neuron_ct = 7 # gen0 inputs + outputs
+        self.innovation_ct = 10 # gen0 syanpses already have their innovation numbers
+        self.neuron_ct = 11 # gen0 inputs + outputs
 
         # this generation only; manage new innovations
         self.innovationDict = {}
@@ -109,7 +109,7 @@ class Network:
         all_innovations = set(my_synapses.keys()) | set(other_synapses.keys())
         
         N = max(len(my_synapses), len(other_synapses))
-        if N < 6: # unmutated entirely
+        if N < 20: # unmutated entirely
             N = 1.0 # Standard NEAT logic, don't normalize small networks
 
         disjoint_excess = 0
@@ -130,25 +130,42 @@ class Network:
         
     @classmethod
     def crossover(cls, parent1, parent2):
+        # 1. Ensure parent1 is always the more fit parent
         if parent2.fitness is not None and parent1.fitness is not None and parent2.fitness > parent1.fitness:
             parent1, parent2 = parent2, parent1
 
-        new_neurons = [Neuron(n.id, n.type, n.bias, n.depth) for n in parent1.neurons]
-            
+        # FIX 1: Properly cross over node biases for shared topology
+        p2_neuron_dict = {n.id: n for n in parent2.neurons}
+        new_neurons = []
+        for n in parent1.neurons:
+            bias = n.bias
+            # If both parents share this node, randomly inherit the bias
+            if n.id in p2_neuron_dict and random.random() < 0.5:
+                bias = p2_neuron_dict[n.id].bias
+            new_neurons.append(Neuron(n.id, n.type, bias, n.depth))
+
         p1_synapses = {s.innovation: s for s in parent1.connections}
         p2_synapses = {s.innovation: s for s in parent2.connections}
-        
+
         all_innovations = set(p1_synapses.keys()) | set(p2_synapses.keys())
-        
+
         new_synapses = []
         for inno in sorted(list(all_innovations)):
+            # Matching genes
             if inno in p1_synapses and inno in p2_synapses:
                 chosen = random.choice([p1_synapses[inno], p2_synapses[inno]])
-                enabled = p1_synapses[inno].enabled and p2_synapses[inno].enabled
+
+                # FIX 2: Prevent severed networks by inheriting structure state from the fit parent
+                enabled = p1_synapses[inno].enabled
+
+                # Small chance to re-enable a previously disabled structural path
                 if not enabled and random.random() < 0.25:
                     enabled = True
-                    
-                new_synapses.append(Synapse(chosen.input_id, chosen.output_id, chosen.weight, chosen.innovation, enabled))
+
+                new_synapses.append(
+                    Synapse(chosen.input_id, chosen.output_id, chosen.weight, chosen.innovation, enabled))
+
+            # Disjoint/Excess genes from the fitter parent only
             elif inno in p1_synapses:
                 s = p1_synapses[inno]
                 new_synapses.append(Synapse(s.input_id, s.output_id, s.weight, s.innovation, s.enabled))
@@ -204,10 +221,14 @@ class Network:
         neuron_values = {
             0: observations[0],  # cart x
             1: observations[1],  # cart v
-            2: observations[2],  # theta
-            3: observations[3],  # v
-            4: observations[4],  # phi
-            5: observations[5]   # w
+            2: observations[2],  # sin_theta
+            3: observations[3],  # cos_theta
+            4: observations[4],  # v_x
+            5: observations[5],  # v_y
+            6: observations[6],  # sin_phi
+            7: observations[7],  # cos_phi
+            8: observations[8],  # w_x
+            9: observations[9]   # w_y
         }
 
         for n_id, bias, syns in self.flattened_execution:
@@ -219,7 +240,7 @@ class Network:
         for n in self.neurons:
             n.last_activation = neuron_values.get(n.id, 0.0)
 
-        return neuron_values[6]
+        return neuron_values[10]
 
     def mutate_add_neuron(self, innovation_tracker):
         # split a random  existing synapse with a nueron in between
@@ -295,37 +316,42 @@ class Network:
 
     def mutate_weights(self):
         for synapse in self.connections:
-            if random.random() < 0.7:
-                synapse.weight += random.uniform(-.1, .1)
-
-            elif random.random() < 0.1:
-                synapse.weight = random.uniform(-2.0, 2.0)
+            # 90% chance for a gene to be mutated
+            if random.random() < 0.9:
+                if random.random() < 0.9:
+                    # Perturb the weight with a larger power (e.g. 0.5 is standard)
+                    synapse.weight += random.uniform(-0.25, 0.25)
+                else:
+                    # Totally entirely new weight 10% of time
+                    synapse.weight = random.uniform(-2.0, 2.0)
 
         for neuron in self.neurons:
             if neuron.type != "INPUT":
-                if random.random() < 0.7:
-                    neuron.bias += random.uniform(-.1, .1)
+                if random.random() < 0.9:
+                    if random.random() < 0.9:
+                        neuron.bias += random.uniform(-0.5, 0.5)
+                    else:
+                        neuron.bias = random.uniform(-2.0, 2.0)
 
         self.flattened_execution = self.compute_flattened_execution()
-
 
 
 def gen0_network():
     neurons = []
     synapses = []
 
-    # 1. Create 6 Input Neurons (IDs 0-5)
-    for i in range(6):
+    # 1. Create 10 Input Neurons (IDs 0-9)
+    for i in range(10):
         n = Neuron(i, "INPUT", 0.0, 0.0)
         neurons.append(n)
 
-    # 2. Create 1 Output Neuron (ID 6)
-    out_n = Neuron(6, "OUTPUT", random.uniform(-1.0, 1.0), 1.0)
+    # 2. Create 1 Output Neuron (ID 10)
+    out_n = Neuron(10, "OUTPUT", random.uniform(-1.0, 1.0), 1.0)
     neurons.append(out_n)
 
     # 3. Create Synapses connecting every input to the output
-    for i in range(6):
-        s = Synapse(i, 6, random.uniform(-2.0, 2.0), i, True)
+    for i in range(10):
+        s = Synapse(i, 10, random.uniform(-2.0, 2.0), i, True)
         synapses.append(s)
 
     # 4. Initialize and return the compiled Network
@@ -335,10 +361,14 @@ def fast_forward_pass_flat(flat_execution, obs):
     neuron_values = {
         0: obs[0],  # cart x
         1: obs[1],  # cart v
-        2: obs[2],  # theta
-        3: obs[3],  # v
-        4: obs[4],  # phi
-        5: obs[5]   # w
+        2: obs[2],  # sin_theta
+        3: obs[3],  # cos_theta
+        4: obs[4],  # v_x
+        5: obs[5],  # v_y
+        6: obs[6],  # sin_phi
+        7: obs[7],  # cos_phi
+        8: obs[8],  # w_x
+        9: obs[9]   # w_y
     }
 
     for n_id, bias, syns in flat_execution:
@@ -347,4 +377,4 @@ def fast_forward_pass_flat(flat_execution, obs):
             incoming_sum += neuron_values[in_id] * weight
         neuron_values[n_id] = math.tanh(incoming_sum)
 
-    return neuron_values[6]
+    return neuron_values[10]

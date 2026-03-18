@@ -33,7 +33,7 @@ SIM_TIME = 20
 DT = 1/60.0
 ELITE_PERCENTILE = 0.1
 ELITE_MUTATE = 0.8
-CURRICULUM_STEP = 0.005
+CURRICULUM_STEP = 0.001
 NEXT_STAGE_CUTOFF = 700
 COMPATIBILITY_THRESHOLD = 5.0
 
@@ -201,7 +201,7 @@ class GenerationChart:
         
         self.total_points_added = 0
         self.grid_x_spacing = max_points // 10
-        self.min_y = 0
+        self.min_y = -200
         self.max_y = 100
         self.max_text = arcade.Text(f"{self.max_y}", x - 5, y + height - 15, arcade.color.GRAY, 10, font_name="Jetbrains Mono", anchor_x="right")
         self.min_text = arcade.Text(f"{self.min_y}", x - 5, y + 5, arcade.color.GRAY, 10, font_name="Jetbrains Mono", anchor_x="right")
@@ -298,9 +298,16 @@ class SpeciesChart:
         self.history = collections.deque(maxlen=max_points)
         self.shape_list = arcade.shape_list.ShapeElementList()
         self.needs_update = False
+        self.cached_sorted_ids = []
 
     def add_data(self, species_dict, champions_dict, gen_num):
         self.history.append({'sizes': species_dict, 'champs': champions_dict, 'gen': gen_num})
+        
+        all_ids = set()
+        for dict_snap in self.history:
+            all_ids.update(dict_snap['sizes'].keys())
+        self.cached_sorted_ids = sorted(list(all_ids))
+        
         self.needs_update = True
         
     def get_species_at(self, x, y):
@@ -315,11 +322,7 @@ class SpeciesChart:
             return None
             
         current_dict = self.history[i]
-        
-        all_ids = set()
-        for dict_snap in self.history:
-            all_ids.update(dict_snap['sizes'].keys())
-        sorted_ids = sorted(list(all_ids))
+        sorted_ids = self.cached_sorted_ids
         
         total_pop = sum(current_dict['sizes'].values())
         if total_pop == 0: total_pop = 1
@@ -365,11 +368,7 @@ class SpeciesChart:
         self.shape_list = arcade.shape_list.ShapeElementList()
         x_step = self.width / (self.max_points - 1)
         
-        all_ids = set()
-        for dict_snap in self.history:
-            all_ids.update(dict_snap['sizes'].keys())
-
-        sorted_ids = sorted(list(all_ids))
+        sorted_ids = self.cached_sorted_ids
 
         stacked_y = []
         for i in range(len(self.history)):
@@ -387,12 +386,14 @@ class SpeciesChart:
             px_left = px
             px_right = px + x_step + 0.5 # Sub-pixel overlap destroys MSAA boundary lines while perfectly preserving width
             
+            prev_sid = 0
             for sid in sorted_ids:
                 color = generate_species_color(sid)
-                prev_sid = sorted_ids[sorted_ids.index(sid)-1] if sorted_ids.index(sid) > 0 else 0
                 
                 y_bottom = stacked_y[i][prev_sid]
                 y_top = stacked_y[i][sid]
+                
+                prev_sid = sid
                 
                 # Guarantee a minimum visual sliver of 2 pixels for any alive species
                 if self.history[i]['sizes'].get(sid, 0) > 0:
@@ -495,11 +496,11 @@ class LiveLineChart:
         self.data.append(value)
         self.total_points_added += 1
         
-        if self.is_reward:
+        if self.is_reward and self.total_points_added % 5 == 0:
             display_val = text_val if text_val is not None else value
             self.title_text.text = f"Cumulative Reward: {display_val:.1f}"
             
-        if self.dynamic_y and len(self.data) > 0:
+        if self.dynamic_y and len(self.data) > 0 and self.total_points_added % 5 == 0:
             cmax = max(self.data)
             cmin = min(self.data)
             self.max_y = max(self.initial_max_y, cmax * 1.1)
@@ -590,7 +591,7 @@ class TrainingApp(arcade.Window):
         
         bottom_y = margin
         self.action_chart = LiveLineChart(margin + 20, bottom_y, panel_w - 20, panel_h, title="Agent Engine Force", min_y=-1, max_y=1, max_points=300, line_color=ACC1_COLOR)
-        self.reward_chart = LiveLineChart(margin * 2 + panel_w + 20, bottom_y, panel_w - 20, panel_h, title="Real-time Reward", min_y=0, max_y=50, max_points=300, line_color=ACC2_COLOR, dynamic_y=True, is_reward=True)
+        self.reward_chart = LiveLineChart(margin * 2 + panel_w + 20, bottom_y, panel_w - 20, panel_h, title="Real-time Reward", min_y=-2, max_y=2, max_points=300, line_color=ACC2_COLOR, dynamic_y=True, is_reward=True)
         self.agent_info = AgentInfoPanel(margin * 3 + panel_w * 2 + 20, bottom_y, panel_w - 20, panel_h)
 
         self.status_text = arcade.Text("Status: STOPPED", margin, self.height - 35, ACC1_COLOR, 18, font_name="Jetbrains Mono", bold=True)
@@ -725,7 +726,7 @@ class TrainingApp(arcade.Window):
         with self.main_camera.activate():
             x_offset = (self.width / 2) - (SCREEN_WIDTH * PPM / 2)
             y_offset = (self.height / 2) - (SCREEN_HEIGHT * PPM / 2) - 100 # Drop camera 100px so it doesn't overlap UI
-            
+
             def adjusted_x(x_meters): return x_meters * PPM + x_offset
             def adjusted_y(y_meters): return y_meters * PPM + y_offset
 
@@ -805,7 +806,7 @@ def runner_loop(ui_queue, seed_network):
     if not os.path.exists("saved_networks"):
         os.makedirs("saved_networks")
 
-    current_variance = 0.05
+    current_variance = 0.00
     compatibility_threshold = COMPATIBILITY_THRESHOLD
 
     optimal_workers = max(1, os.cpu_count() - 2)
@@ -850,30 +851,32 @@ def runner_loop(ui_queue, seed_network):
                     species_members[s_idx].append(network)
                     network.species_id = s_idx
 
-            # Update species representatives for the next generation to be a random 
-            # member of the newly formed species to prevent drifting
+            # Keep the species representatives for the next generation completely locked  
+            # to the founding network to prevent center drifting and static fracturing
             new_species_reps = {}
             for s_idx, members in species_members.items():
                 if members:
-                    new_species_reps[s_idx] = random.choice(members)
+                    new_species_reps[s_idx] = species_reps[s_idx]
             species_reps = new_species_reps
 
             # The new optimal target for 256 agents
             target_species = 20
 
-            # Give it a slightly wider buffer (don't panic if it's 18 or 22)
-            species_diff = abs(len(species_reps) - target_species)
+            species_diff = len(species_reps) - target_species
 
-            # Proportional step sizes
-            step_size = 1.0 if species_diff > 3 else 0.5
+            step_size = 0.3
+            if abs(species_diff) > 5:
+                step_size = 1.0
+            elif abs(species_diff) > 2:
+                step_size = 0.5
 
-            if len(species_reps) > target_species + 2:
+            if species_diff > 0:
                 compatibility_threshold += step_size
-            elif len(species_reps) < target_species - 2:
+            elif species_diff < 0:
                 compatibility_threshold -= step_size
 
-            # Keep the floor around 2.0 to prevent the TV static!
-            compatibility_threshold = min(max(0.5, compatibility_threshold), 20.0)
+            # Keep the floor to prevent the TV static but do not enforce a tight upper bound
+            compatibility_threshold = max(0.5, compatibility_threshold)
 
             # Calculate adjusted fitness
             for network in population:
@@ -985,9 +988,10 @@ def runner_loop(ui_queue, seed_network):
             inno_tracker.start_new_generation()
 
             for network in next_gen_children:
-                network.mutate_weights()
-                if random.random() <= 0.05: network.mutate_add_neuron(inno_tracker)
-                if random.random() <= 0.1:  network.mutate_add_synapse(inno_tracker)
+                if random.random() < 0.8:
+                    network.mutate_weights()
+                if random.random() <= 0.03: network.mutate_add_neuron(inno_tracker)
+                if random.random() <= 0.05: network.mutate_add_synapse(inno_tracker)
 
             population = next_gen
 
