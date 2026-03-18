@@ -106,7 +106,7 @@ class LiveLineChart:
 # --- MAIN APPLICATION ---
 
 class PhysicsSimulator(arcade.Window):
-    def __init__(self, env, brain_filepath=None):
+    def __init__(self, env, population_path=None):
         super().__init__(int(SCREEN_WIDTH * PPM), int(SCREEN_HEIGHT * PPM), "Double Pendulum Simulator",
                          antialiasing=True)
         self.agent_score_in_period = None
@@ -116,10 +116,10 @@ class PhysicsSimulator(arcade.Window):
         self.env = env
 
         # Pickle Loading Logic
-        if brain_filepath and os.path.exists(brain_filepath):
-            with open(brain_filepath, "rb") as f:
-                self.network = pickle.load(f)
-            print(f"Successfully loaded brain from: {brain_filepath}")
+        if population_path and os.path.exists(population_path):
+            with open(population_path, "rb") as f:
+                self.network = pickle.load(f)[0]
+            print(f"Successfully loaded brain from: {population_path}")
         else:
             self.network = gen0_network()
             print("No saved brain provided or found. Falling back to random Gen 0 brain.")
@@ -294,7 +294,7 @@ if __name__ == "__main__":
     env = DoublePendulumEnv()
     env.reset()
 
-    glitched_brain_path = "saved_networks/champion_gen_550.pkl"
+    glitched_brain_path = "saved_networks/champion_gen_1000.pkl"
 
-    viewer = PhysicsSimulator(env, brain_filepath=glitched_brain_path)
+    viewer = PhysicsSimulator(env, population_path=glitched_brain_path)
     arcade.run()

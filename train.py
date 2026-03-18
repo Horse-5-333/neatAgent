@@ -65,22 +65,25 @@ def run_simulation(num_generations, pop_size):
             champion_network = population[0]
             median_network = population[int(0.5 * pop_size)]
 
-            print(f"Generation {generation:>4} Distribution :{population[-1].fitness:>5.0f} "
-                  f"{population[int(0.75 * pop_size)].fitness:>5.0f} "
-                  f"{population[int(0.5 * pop_size)].fitness:>5.0f} "
-                  f"{population[int(0.25 * pop_size)].fitness:>5.0f} "
-                  f" {population[0].fitness:>5.0f}"
-                  f"{f" G: {current_gravity:.2f}, F: {current_friction:.2f}" if median_network.fitness > NEXT_STAGE_CUTOFF else ""} ")
+
 
             if median_network.fitness > NEXT_STAGE_CUTOFF:
                 current_gravity = min(9.81, current_gravity + 9.81 * CURRICULUM_STEP)
                 current_friction = max(0.0, current_friction - CURRICULUM_STEP)
 
 
-            # if generation % 10 == 0:
-            #     filename = f"saved_networks/champion_gen_{generation}.pkl"
-            #     with open(filename, "wb") as f:
-            #         pickle.dump(champion_network, f)
+            if generation % 100 == 0:
+                print(f"Generation {generation:>4} Distribution :{population[-1].fitness:>5.0f} "
+                      f"{population[int(0.75 * pop_size)].fitness:>5.0f} "
+                      f"{population[int(0.5 * pop_size)].fitness:>5.0f} "
+                      f"{population[int(0.25 * pop_size)].fitness:>5.0f} "
+                      f" {population[0].fitness:>5.0f}"
+                      f"{f" G: {current_gravity:.2f}, F: {current_friction:.2f}" 
+                      if median_network.fitness > NEXT_STAGE_CUTOFF else ""} ")
+
+                filename = f"saved_networks/champion_gen_{generation}.pkl"
+                with open(filename, "wb") as f:
+                    pickle.dump(population, f)
 
 
             elite_ct = int(ELITE_PERCENTILE * pop_size)
