@@ -388,7 +388,8 @@ class DoublePendulumEnv:
         if self.height_pts < 0.0:
             self.height_pts = 0.0
 
-        final_reward = self.height_pts
+        # Incorporate raw continuous bob height to eliminate flat gradient local minimums
+        final_reward = self.height_pts + (self.bob2.s.y / 5.0)
 
         if obs0 <= -0.85 or obs0 >= 0.85:
             final_reward -= 5.0

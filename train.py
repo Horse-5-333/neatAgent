@@ -9,6 +9,7 @@ import collections
 import cProfile
 import pstats
 import io
+import itertools
 from agent import gen0_network, InnovationManager, Network, fast_forward_pass_flat
 from physics import DoublePendulumEnv
 
@@ -57,8 +58,9 @@ def run_simulation(num_generations, pop_size):
     current_variance = 0.05
     compatibility_threshold = COMPATIBILITY_THRESHOLD
 
+    gen_iter = range(num_generations + 1) if num_generations > 0 else itertools.count()
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
-        for generation in range(num_generations + 1):
+        for generation in gen_iter:
             
             gen_seed = random.randint(0, 100000000)
             eval_func = partial(evaluate_single_network, run_steps=steps,
@@ -198,9 +200,12 @@ def run_simulation(num_generations, pop_size):
     return population[0] # the best network of all time!!!!
 
 if __name__ == "__main__":
+    import sys
+    limit = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    
     pr = cProfile.Profile()
     pr.enable()
-    run_simulation(GENERATIONS, POPULATION)
+    run_simulation(limit, POPULATION)
     pr.disable()
     
     s = io.StringIO()
