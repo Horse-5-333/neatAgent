@@ -295,7 +295,7 @@ if __name__ == "__main__":
     env = DoublePendulumEnv()
     env.reset()
 
-    glitched_brain_path = "saved_networks/champion_gen_100.pkl"
+    glitched_brain_path = "saved_networks/champion_gen_2100.pkl"
 
     viewer = PhysicsSimulator(env, population_path=glitched_brain_path)
     arcade.run()

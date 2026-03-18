@@ -342,7 +342,7 @@ class DoublePendulumEnv:
         track_home = Vec(SCREEN_WIDTH / 2, TRACK_HEIGHT)
 
 
-        theta = [random.uniform(0, 2 * math.pi), random.uniform(0, 2 * math.pi)]
+        theta = [random.uniform(-math.pi, math.pi), random.uniform(-math.pi, math.pi)]
         theta = [0.5 * math.pi + (self.start_var * t) for t in theta]
 
         vel = [random.uniform(-3, 3), random.uniform(-5, 5)]

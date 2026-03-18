@@ -9,13 +9,13 @@ from agent import gen0_network, InnovationManager, Network, fast_forward_pass_fl
 from physics import DoublePendulumEnv
 
 POPULATION = 96
-GENERATIONS = 1000
+GENERATIONS = 10000
 SIM_TIME = 20
 DT = 1/60.0
 ELITE_PERCENTILE = 0.1 # top creatures always advance
 ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
-CURRICULUM_STEP = 0.0025 # parameter to control difficulty progression speed
-NEXT_STAGE_CUTOFF = 1200 # reward required for 95% percentile, to continue cirriculum
+CURRICULUM_STEP = 0.005 # parameter to control difficulty progression speed
+NEXT_STAGE_CUTOFF = 2500 # reward required for 95% percentile, to continue cirriculum
 
 def evaluate_single_network(network_flat, run_steps, generation_seed, start_var):
     # Ensure all networks in a generation face the exact same random environmental start
@@ -47,7 +47,7 @@ def run_simulation(num_generations, pop_size):
 
     current_gravity = 9.81
     current_friction = 0.05
-    current_variance = 0.01
+    current_variance = 0.00
 
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
         for generation in range(num_generations + 1):
@@ -65,10 +65,10 @@ def run_simulation(num_generations, pop_size):
             # all networks have a fitness score now, copy elites exactly, mutate some elites, mutate some commoners
             population.sort(key=lambda n: n.fitness, reverse=True)
 
-            good_performer = population[int(0.90 * pop_size)]
+            good_performer = population[int(0.10 * pop_size)]
 
             if good_performer.fitness > NEXT_STAGE_CUTOFF:
-                current_variance = min(current_variance * 1.01, 1)
+                current_variance = min(current_variance + CURRICULUM_STEP, 1.0)
                 print(f"Variance updated to {current_variance:>5.5f} in Gen {generation}")
 
 
