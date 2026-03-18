@@ -108,7 +108,6 @@ def run_simulation(num_generations, pop_size):
                 current_variance = min(current_variance + CURRICULUM_STEP, 1.0)
                 print(f"Variance updated to {current_variance:>5.5f} in Gen {generation}")
 
-
             if generation % 50 == 0:
                 print(f"Generation {generation:>4} | Species: {len(species_reps)} | Best Raw Fitness: {best_raw.fitness:>5.0f}")
                 print(f"Top Adj. Fit: {population[0].adjusted_fitness:>5.0f} | Median Adj. Fit: {population[int(0.5 * pop_size)].adjusted_fitness:>5.0f}")
@@ -117,33 +116,74 @@ def run_simulation(num_generations, pop_size):
                 with open(filename, "wb") as f:
                     pickle.dump(population, f)
 
+            species_avg_adj_fitness = {}
+            for s_idx, members in species_members.items():
+                species_avg_adj_fitness[s_idx] = sum(m.adjusted_fitness for m in members) / len(members)
 
-            elite_ct = int(ELITE_PERCENTILE * pop_size)
-            next_gen = [deepcopy(p) for p in population[:elite_ct]]
+            total_avg = sum(species_avg_adj_fitness.values())
+            
+            species_slots = {}
+            fractional_parts = {}
+            
+            for s_idx, avg in species_avg_adj_fitness.items():
+                exact = (avg / total_avg) * pop_size if total_avg > 0 else pop_size / len(species_members)
+                species_slots[s_idx] = int(exact)
+                fractional_parts[s_idx] = exact - int(exact)
+                
+            remaining = pop_size - sum(species_slots.values())
+            for s_idx, _ in sorted(fractional_parts.items(), key=lambda x: x[1], reverse=True)[:remaining]:
+                species_slots[s_idx] += 1
 
-            while len(next_gen) < ELITE_MUTATE * pop_size:
-                if random.random() < 0.75:
-                    parent1 = random.choice(population[:elite_ct])
-                    parent2 = random.choice(population[:elite_ct])
-                    child = Network.crossover(parent1, parent2)
-                else:
-                    parent = random.choice(population[:elite_ct])
-                    child = deepcopy(parent)
-                next_gen.append(child)
+            next_gen_elites = []
+            next_gen_children = []
+            
+            for s_idx, slots in species_slots.items():
+                if slots == 0:
+                    continue
+                members = species_members[s_idx]
+                members.sort(key=lambda n: n.adjusted_fitness, reverse=True)
+                
+                clones_to_make = min(2, len(members), slots)
+                for i in range(clones_to_make):
+                    next_gen_elites.append(members[i].clone())
+                    
+                slots_remaining = slots - clones_to_make
+                
+                if slots_remaining <= 0:
+                    continue
 
-            while len(next_gen) < pop_size:
-                if random.random() < 0.75:
-                    parent1 = random.choice(population[:elite_ct])
-                    parent2 = random.choice(population)
-                    child = Network.crossover(parent1, parent2)
-                else:
-                    parent = random.choice(population)
-                    child = deepcopy(parent)
-                next_gen.append(child)
+                mating_pool_size = max(1, len(members) // 2)
+                mating_pool = members[:mating_pool_size]
+
+                pool_fitness = [m.adjusted_fitness for m in mating_pool]
+                min_fit = min(pool_fitness)
+                
+                # Shift to be > 0 for weights
+                weights = [(f - min_fit + 0.001) for f in pool_fitness] 
+                
+                while slots_remaining > 0:
+                    if random.random() < 0.75 and len(mating_pool) > 1:
+                        parent1, parent2 = random.choices(mating_pool, weights=weights, k=2)
+                        
+                        # ensure different parents if possible
+                        attempts = 0
+                        while parent1 is parent2 and attempts < 10:
+                             parent2 = random.choices(mating_pool, weights=weights, k=1)[0]
+                             attempts += 1
+                             
+                        child = Network.crossover(parent1, parent2)
+                    else:
+                        parent = random.choices(mating_pool, weights=weights, k=1)[0]
+                        child = parent.clone()
+                        
+                    next_gen_children.append(child)
+                    slots_remaining -= 1
+
+            next_gen = next_gen_elites + next_gen_children
 
             inno_tracker.start_new_generation()
 
-            for network in next_gen[elite_ct:]:
+            for network in next_gen_children:
                 network.mutate_weights()
 
                 if random.random() <= 0.05:

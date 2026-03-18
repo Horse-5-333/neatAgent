@@ -16,9 +16,6 @@ class Synapse:
         self.weight = weight
         self.innovation = innovation
 
-    def clone(self):
-        # Manually instantiating a new object is 10x-100x faster than deepcopy
-        return Synapse(self.input_id, self.output_id, self.weight, self.innovation, self.enabled)
 
     def __eq__(self, other):
         return True if (self.input_id == other.input_id and self.output_id == other.output_id) else False
@@ -74,6 +71,27 @@ class Network:
         self.incoming_synapses = self.compute_incoming_synapses()
         self.flattened_execution = self.compute_flattened_execution()
 
+    def clone(self):
+        new_neurons = [Neuron(n.id, n.type, n.bias, n.depth) for n in self.neurons]
+        new_connections = [Synapse(s.input_id, s.output_id, s.weight, s.innovation, s.enabled) for s in self.connections]
+        
+        clone_net = Network.__new__(Network)
+        clone_net.neurons = new_neurons
+        clone_net.connections = new_connections
+        clone_net.fitness = self.fitness
+        clone_net.adjusted_fitness = self.adjusted_fitness
+        clone_net.species_id = self.species_id
+        
+        clone_net.neuron_dict = {n.id: n for n in clone_net.neurons}
+        
+        # Pass by reference to save computation time
+        clone_net.execution_order = self.execution_order
+        
+        # Must recompute so flattened representation uses the newly referenced neurons and synapses
+        clone_net.incoming_synapses = clone_net.compute_incoming_synapses()
+        clone_net.flattened_execution = clone_net.compute_flattened_execution()
+        
+        return clone_net
     def compute_flattened_execution(self):
         instructions = []
         for n_id in self.execution_order:
@@ -283,6 +301,8 @@ class Network:
             if neuron.type != "INPUT":
                 if random.random() < 0.7:
                     neuron.bias += random.uniform(-.1, .1)
+
+        self.flattened_execution = self.compute_flattened_execution()
 
 
 
