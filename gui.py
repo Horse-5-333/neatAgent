@@ -11,6 +11,7 @@ import concurrent.futures
 import concurrent.futures
 import random
 import colorsys
+import itertools
 from functools import partial
 
 from physics import Vec, DoublePendulumEnv, TRACK_HEIGHT, TRACK_LENGTH, SCREEN_WIDTH, SCREEN_HEIGHT, PPM
@@ -67,49 +68,118 @@ class NetworkVisualizer:
         if not self.network:
             return
         self.raw_lines = []
-        self.raw_circles = []
 
         padding = 20
         usable_w = self.width - (padding * 2)
         usable_h = self.height - (padding * 2)
 
         node_positions = {}
-        depth_counts = collections.defaultdict(int)
-        depth_slots = collections.defaultdict(int)
-
         for n in self.network.neurons:
-            depth_counts[n.depth] += 1
+            if n.type == 'INPUT': x = 0.0
+            elif n.type == 'OUTPUT': x = 1.0
+            else: x = random.uniform(0.2, 0.8)
+            node_positions[n.id] = [x, random.uniform(0.1, 0.9)]
 
-        for n in self.network.neurons:
-            dx = self.x + padding + (n.depth * usable_w)
-            slot = depth_slots[n.depth]
-            total_at_depth = depth_counts[n.depth]
-            dy = self.y + padding + ((slot / max(1, total_at_depth - 1)) * usable_h) if total_at_depth > 1 else self.y + self.height / 2
-            node_positions[n.id] = (dx, dy)
-            depth_slots[n.depth] += 1
+        for _ in range(250):
+            forces = {n.id: [0.0, 0.0] for n in self.network.neurons}
+            
+            for n1 in self.network.neurons:
+                for n2 in self.network.neurons:
+                    if n1.id == n2.id: continue
+                    dx = node_positions[n1.id][0] - node_positions[n2.id][0]
+                    dy = node_positions[n1.id][1] - node_positions[n2.id][1]
+                    dist_sq = dx*dx + dy*dy + 0.001
+                    dist = math.sqrt(dist_sq)
+                    force = 0.002 / dist_sq
+                    forces[n1.id][0] += (dx/dist) * force
+                    forces[n1.id][1] += (dy/dist) * force
+                    
+            for s in self.network.connections:
+                if not s.enabled: continue
+                if s.input_id not in node_positions or s.output_id not in node_positions: continue
+                n1 = self.network.neuron_dict[s.input_id]
+                n2 = self.network.neuron_dict[s.output_id]
+                
+                dx = node_positions[n2.id][0] - node_positions[n1.id][0]
+                dy = node_positions[n2.id][1] - node_positions[n1.id][1]
+                dist = math.hypot(dx, dy) + 0.001
+                
+                depth_diff = abs(n2.depth - n1.depth)
+                weight_mag = abs(s.weight)
+                
+                # Weaken the effect: maximum 40% shrinkage for strong weights
+                scale_factor = min(0.4, weight_mag * 0.05)
+                
+                # Minimum rest length bounds so they stay apart
+                target_len = max(0.2, (depth_diff * 0.8) * (1.0 - scale_factor))
+                
+                spring_k = 0.1 * (1.0 + scale_factor)
+                
+                force = (dist - target_len) * spring_k 
+                forces[n1.id][0] += (dx/dist) * force
+                forces[n1.id][1] += (dy/dist) * force
+                forces[n2.id][0] -= (dx/dist) * force
+                forces[n2.id][1] -= (dy/dist) * force
+                
+            for n in self.network.neurons:
+                target_x = n.depth
+                forces[n.id][0] += (target_x - node_positions[n.id][0]) * 0.05
+                
+                if node_positions[n.id][1] < 0: forces[n.id][1] += 0.05
+                if node_positions[n.id][1] > 1: forces[n.id][1] -= 0.05
+                
+                node_positions[n.id][0] += forces[n.id][0]
+                node_positions[n.id][1] += forces[n.id][1]
 
+        min_x = min(p[0] for p in node_positions.values()) if node_positions else 0
+        max_x = max(p[0] for p in node_positions.values()) if node_positions else 1
+        x_range = max(0.01, max_x - min_x)
+
+        min_y = min(p[1] for p in node_positions.values()) if node_positions else 0
+        max_y = max(p[1] for p in node_positions.values()) if node_positions else 1
+        y_range = max(0.01, max_y - min_y)
+        
+        for n_id in node_positions:
+            nx = self.x + padding + (((node_positions[n_id][0] - min_x) / x_range) * usable_w)
+            ny = self.y + padding + (((node_positions[n_id][1] - min_y) / y_range) * usable_h)
+            node_positions[n_id] = (nx, ny)
+
+        self.raw_lines = []
         for s in self.network.connections:
             if not s.enabled: continue
             if s.input_id in node_positions and s.output_id in node_positions:
                 start = node_positions[s.input_id]
                 end = node_positions[s.output_id]
-                color = tuple(list(ACC1_COLOR) + [150]) if s.weight >= 0 else tuple(list(ACC3_COLOR) + [150])
+                color = (180, 180, 180, 255)
                 thickness = 2
                 self.raw_lines.append((start[0], start[1], end[0], end[1], color, thickness))
-        for n_id, pos in node_positions.items():
-            self.raw_circles.append((pos[0], pos[1]))
+                
+        self.node_positions = node_positions
 
     def draw(self):
         arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 25))
         arcade.draw_lbwh_rectangle_outline(self.x, self.y, self.width, self.height, LIGHT_GRAY, 1)
         self.title_text.draw()
-        if hasattr(self, 'shape_list') and self.shape_list:
-            self.shape_list.draw()
-        elif hasattr(self, 'raw_lines'):
+        
+        if hasattr(self, 'raw_lines'):
             for l in self.raw_lines:
                 arcade.draw_line(l[0], l[1], l[2], l[3], l[4], l[5])
-            for c in self.raw_circles:
-                arcade.draw_circle_filled(c[0], c[1], 6, LIGHT_GRAY, num_segments=32)
+                
+        if hasattr(self, 'node_positions'):
+            for n in self.network.neurons if self.network else []:
+                if n.id in self.node_positions:
+                    pos = self.node_positions[n.id]
+                    val = getattr(n, 'last_activation', 0.0)
+                    shade = int(max(0, min(255, ((val + 1.0) / 2.0) * 205 + 50)))
+                    c = (shade, shade, shade, 255)
+                    arcade.draw_circle_filled(pos[0], pos[1], 8, c)
+                    
+                    if n.type == 'INPUT':
+                        arcade.draw_circle_outline(pos[0], pos[1], 12, ACC2_COLOR, 2)
+                    elif n.type == 'OUTPUT':
+                        arcade.draw_circle_outline(pos[0], pos[1], 12, ACC1_COLOR, 2)
+                    else:
+                        arcade.draw_circle_outline(pos[0], pos[1], 8, arcade.color.BLACK, 1)
 
 
 class GenerationChart:
@@ -229,9 +299,44 @@ class SpeciesChart:
         self.shape_list = arcade.shape_list.ShapeElementList()
         self.needs_update = False
 
-    def add_data(self, species_dict):
-        self.history.append(species_dict)
+    def add_data(self, species_dict, champions_dict, gen_num):
+        self.history.append({'sizes': species_dict, 'champs': champions_dict, 'gen': gen_num})
         self.needs_update = True
+        
+    def get_species_at(self, x, y):
+        if not (self.x <= x <= self.x + self.width and self.y <= y <= self.y + self.height):
+            return None
+        if not self.history: return None
+        
+        x_step = self.width / (self.max_points - 1)
+        idx_from_right = (self.x + self.width - x) / x_step
+        i = len(self.history) - 1 - int(idx_from_right + 0.5)
+        if i < 0 or i >= len(self.history):
+            return None
+            
+        current_dict = self.history[i]
+        
+        all_ids = set()
+        for dict_snap in self.history:
+            all_ids.update(dict_snap['sizes'].keys())
+        sorted_ids = sorted(list(all_ids))
+        
+        total_pop = sum(current_dict['sizes'].values())
+        if total_pop == 0: total_pop = 1
+        
+        running = 0
+        for sid in sorted_ids:
+            y_bottom = self.y + (running / total_pop) * self.height
+            count = current_dict['sizes'].get(sid, 0)
+            running += count
+            y_top = self.y + (running / total_pop) * self.height
+            if count > 0:
+                y_top = max(y_top, y_bottom + 2.0)
+            
+            if y_bottom <= y <= y_top and count > 0:
+                return (i, sid)
+                
+        return None
 
     def draw(self):
         arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 25))
@@ -248,6 +353,12 @@ class SpeciesChart:
         if self.shape_list:
             self.shape_list.draw()
             
+        if getattr(self, 'hover_sid', None) is not None:
+            text = f" Species {self.hover_sid} "
+            tw = len(text) * 8
+            arcade.draw_lrbt_rectangle_filled(self.hover_x, self.hover_x + tw, self.hover_y, self.hover_y + 20, (30,30,30,220))
+            arcade.draw_text(text, self.hover_x, self.hover_y + 4, arcade.color.WHITE, 12, font_name="Jetbrains Mono")
+            
         arcade.draw_lbwh_rectangle_outline(self.x, self.y, self.width, self.height, LIGHT_GRAY, 1)
 
     def _build_shapes(self):
@@ -256,7 +367,7 @@ class SpeciesChart:
         
         all_ids = set()
         for dict_snap in self.history:
-            all_ids.update(dict_snap.keys())
+            all_ids.update(dict_snap['sizes'].keys())
 
         sorted_ids = sorted(list(all_ids))
 
@@ -264,10 +375,10 @@ class SpeciesChart:
         for i in range(len(self.history)):
             current_stack = {0: self.y} # id=0 represents the bottom starting coordinate for drawing
             running = 0
-            total_pop = sum(self.history[i].values())
+            total_pop = sum(self.history[i]['sizes'].values())
             if total_pop == 0: total_pop = 1
             for sid in sorted_ids:
-                running += self.history[i].get(sid, 0)
+                running += self.history[i]['sizes'].get(sid, 0)
                 current_stack[sid] = self.y + (running / total_pop) * self.height
             stacked_y.append(current_stack)
             
@@ -284,7 +395,7 @@ class SpeciesChart:
                 y_top = stacked_y[i][sid]
                 
                 # Guarantee a minimum visual sliver of 2 pixels for any alive species
-                if self.history[i].get(sid, 0) > 0:
+                if self.history[i]['sizes'].get(sid, 0) > 0:
                     y_top = max(y_top, y_bottom + 2.0)
                 
                 if y_top > y_bottom:
@@ -380,12 +491,13 @@ class LiveLineChart:
         self.max_text = arcade.Text(f"{max_y}", x - 5, y + height - 15, arcade.color.GRAY, 10, font_name="Jetbrains Mono", anchor_x="right")
         self.min_text = arcade.Text(f"{min_y}", x - 5, y + 5, arcade.color.GRAY, 10, font_name="Jetbrains Mono", anchor_x="right")
 
-    def add_point(self, value):
+    def add_point(self, value, text_val=None):
         self.data.append(value)
         self.total_points_added += 1
         
         if self.is_reward:
-            self.title_text.text = f"Cumulative Reward: {value:.1f}"
+            display_val = text_val if text_val is not None else value
+            self.title_text.text = f"Cumulative Reward: {display_val:.1f}"
             
         if self.dynamic_y and len(self.data) > 0:
             cmax = max(self.data)
@@ -457,6 +569,7 @@ class TrainingApp(arcade.Window):
         self.current_obs = self.env.reset()
         self.active_network = None
         self.active_gen_display = 0
+        self.fitness_sum = 0.0
         
         self.frame_count = 0
         self.frames_per_cycle = 720 
@@ -515,6 +628,26 @@ class TrainingApp(arcade.Window):
                 self.status_text.text = "Status: TRAINING (Resumed)"
                 self.status_text.color = ACC3_COLOR
 
+    def on_mouse_motion(self, x, y, dx, dy):
+        info = self.species_chart.get_species_at(x, y)
+        if info:
+            self.species_chart.hover_sid = info[1]
+            self.species_chart.hover_x = x
+            self.species_chart.hover_y = y
+        else:
+            self.species_chart.hover_sid = None
+
+    def on_mouse_press(self, x, y, button, modifiers):
+        if button == arcade.MOUSE_BUTTON_LEFT:
+            info = self.species_chart.get_species_at(x, y)
+            if info:
+                gen_idx, sid = info
+                champs = self.species_chart.history[gen_idx].get('champs', {})
+                if sid in champs:
+                    self.active_network_buffer = champs[sid]
+                    self.active_gen_buffer = self.species_chart.history[gen_idx].get('gen', gen_idx)
+                    self.frame_count = self.frames_per_cycle
+
     def on_key_press(self, symbol, modifiers):
         if symbol == arcade.key.SPACE:
             self.toggle_pause()
@@ -540,6 +673,7 @@ class TrainingApp(arcade.Window):
             
             var_up = newest_update['var_inc']
             s_dict = newest_update['species_sizes']
+            s_champs = newest_update.get('species_champions', {})
             gen = newest_update['gen']
             current_variance = newest_update['variance']
             alive_count = newest_update['alive_species']
@@ -547,7 +681,7 @@ class TrainingApp(arcade.Window):
             self.status_text.text = f"Status: Training Generation {gen}"
             
             self.gen_chart.add_data(max_f, p75_f, med_f, p25_f, min_f, gen, var_up)
-            self.species_chart.add_data(s_dict)
+            self.species_chart.add_data(s_dict, s_champs, gen)
             self.active_network_buffer = newest_update['network']
             self.active_gen_buffer = gen
             self.active_var_buffer = current_variance
@@ -565,6 +699,7 @@ class TrainingApp(arcade.Window):
             
             self.env = DoublePendulumEnv(start_var=0.0) 
             self.current_obs = self.env.reset()
+            self.fitness_sum = 0.0
             # Cancel the instant velocity that happens from 0.0 start_var pushing down the pendulum to prevent haunted swing
             self.env.bob1.v = Vec(0,0)
             self.env.bob2.v = Vec(0,0)
@@ -574,9 +709,10 @@ class TrainingApp(arcade.Window):
         if self.active_network:
             force = self.active_network.forward_pass(self.current_obs)
             self.current_obs, reward, _ = self.env.step(force, 1/60.0)
+            self.fitness_sum += reward
             # Add action to LiveLineChart 
             self.action_chart.add_point(force)
-            self.reward_chart.add_point(reward)
+            self.reward_chart.add_point(reward, text_val=self.fitness_sum)
 
 
     def on_draw(self):
@@ -758,16 +894,24 @@ def runner_loop(ui_queue, seed_network):
             # Sort by raw fitness for accurate quartile distribution
             raw_sorted = sorted(population, key=lambda n: n.fitness, reverse=True)
             
+            # Breed Next Gen
+            species_champions = {}
+            for s_idx, members in species_members.items():
+                if members:
+                    best = max(members, key=lambda n: n.fitness)
+                    species_champions[s_idx] = best.clone()
+                    
             # PUSH TO UI
             ui_queue.put({
-                'max_f': raw_sorted[0].fitness,
+                'max_f': raw_sorted[2].fitness if len(raw_sorted) > 2 else raw_sorted[0].fitness,
                 'p75_f': raw_sorted[int(0.25 * POPULATION)].fitness,
                 'med_f': raw_sorted[int(0.50 * POPULATION)].fitness,
                 'p25_f': raw_sorted[int(0.75 * POPULATION)].fitness,
-                'min_f': raw_sorted[-1].fitness,
+                'min_f': raw_sorted[-3].fitness if len(raw_sorted) > 2 else raw_sorted[-1].fitness,
                 'gen': generation,
                 'var_inc': var_inc,
                 'species_sizes': species_sizes,
+                'species_champions': species_champions,
                 'network': best_raw.clone(),
                 'variance': current_variance,
                 'alive_species': len(species_members)

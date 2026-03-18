@@ -40,7 +40,7 @@ def evaluate_single_network(network_flat, run_steps, generation_seed, start_var)
 
     # 3. We ONLY return the score.
     # (Returning the whole brain is heavy and slows down the pipe)
-    return fitness, frames
+    return max(0.0, fitness), frames
 
 
 

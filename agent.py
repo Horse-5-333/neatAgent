@@ -216,6 +216,9 @@ class Network:
                 incoming_sum += neuron_values.get(in_id, 0.0) * weight
             neuron_values[n_id] = math.tanh(incoming_sum)
 
+        for n in self.neurons:
+            n.last_activation = neuron_values.get(n.id, 0.0)
+
         return neuron_values[6]
 
     def mutate_add_neuron(self, innovation_tracker):

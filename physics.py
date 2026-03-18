@@ -308,12 +308,14 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
     phi = math.atan2(rod2_y, rod2_x) / math.pi
     w = math.tanh(math.hypot(b2_vx, b2_vy) / 6.0)
 
-    if b2_y > TRACK_HEIGHT + b1_rest + b2_rest - 0.25:
-        reward = 1.0
-    # elif b2_y > TRACK_HEIGHT + b1_rest:
-    #     reward = 1.0
-    # elif b2_y > TRACK_HEIGHT:
-    #     reward = 0.5
+    if b2_y > TRACK_HEIGHT + b1_rest + b2_rest - 0.5:
+        reward = +2.0
+    elif b2_y > TRACK_HEIGHT + b1_rest:
+        reward = +1.0
+    elif b2_y > TRACK_HEIGHT:
+        reward = 0.0
+    elif b2_y > TRACK_HEIGHT - (b1_rest / 2.0):
+        reward = -0.5
     else:
         reward = -2.0
 
@@ -387,10 +389,10 @@ class DoublePendulumEnv:
             self.height_pts = 0.0
 
         final_reward = self.height_pts
-        if -0.85 < obs0 <  0.85:
-            final_reward += 1
-        else:
-            final_reward = 0
+
+        if obs0 <= -0.85 or obs0 >= 0.85:
+            final_reward -= 5.0
+            self.height_pts = max(0.0, self.height_pts - 1.0)
 
         return [obs0, obs1, obs2, obs3, obs4, obs5], final_reward, frame
 
