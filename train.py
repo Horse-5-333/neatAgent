@@ -19,7 +19,7 @@ DT = 1/60.0
 ELITE_PERCENTILE = 0.1 # top creatures always advance
 ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
 CURRICULUM_STEP = 0.005 # parameter to control difficulty progression speed
-NEXT_STAGE_CUTOFF = 1200 # reward required for 95% percentile, to continue cirriculum
+NEXT_STAGE_CUTOFF = 800 # upright frames required for 90% percentile, to continue curriculum
 COMPATIBILITY_THRESHOLD = 15.0
 
 def evaluate_single_network(network_flat, run_steps, generation_seed, start_var):
@@ -31,12 +31,12 @@ def evaluate_single_network(network_flat, run_steps, generation_seed, start_var)
     fitness = 0.0
     frames = 0
 
-    # 2. Run the simulation
     for _ in range(run_steps):
         action = fast_forward_pass_flat(network_flat, obs)
         obs, reward, frame = env.step(action)
         fitness += reward
-        frames += 1
+        if frame:
+            frames += 1
 
     # 3. We ONLY return the score.
     # (Returning the whole brain is heavy and slows down the pipe)
@@ -65,11 +65,10 @@ def run_simulation(num_generations, pop_size):
                                 generation_seed=gen_seed,
                                 start_var=current_variance)
             flat_pop = [bench.export_flat() for bench in population]
-            scores, frames = list(executor.map(eval_func, flat_pop, chunksize=12))
+            eval_results = list(executor.map(eval_func, flat_pop, chunksize=12))
 
             for i in range(pop_size):
-                population[i].fitness = scores[i]
-                population[i].frames = frames[i]
+                population[i].fitness, population[i].frames = eval_results[i]
 
             # Speciation
             species_reps = []

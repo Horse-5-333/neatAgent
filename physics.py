@@ -370,7 +370,7 @@ class DoublePendulumEnv:
         (self.cart.s.x, self.cart.v.x,
          self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y,
          self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y,
-         obs0, obs1, obs2, obs3, obs4, obs5, reward) = fast_physics_step(
+         obs0, obs1, obs2, obs3, obs4, obs5, reward, frame) = fast_physics_step(
              action_force, dt, GRAVITY, FRICTION_MULT,
              self.cart.s.x, self.cart.v.x, self.cart.mass,
              self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y, self.bob1.mass, self.bob1_rest_length,
@@ -380,7 +380,7 @@ class DoublePendulumEnv:
         self.cart.s.y = 10.0
         self.cart.v.y = 0.0
 
-        return [obs0, obs1, obs2, obs3, obs4, obs5], reward
+        return [obs0, obs1, obs2, obs3, obs4, obs5], reward, frame
 
     def observations(self):
         cart_x = (2*self.cart.s.x - SCREEN_WIDTH)/TRACK_LENGTH
