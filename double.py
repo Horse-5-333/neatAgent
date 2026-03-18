@@ -110,6 +110,7 @@ class PhysicsSimulator(arcade.Window):
         super().__init__(int(SCREEN_WIDTH * PPM), int(SCREEN_HEIGHT * PPM), "Double Pendulum Simulator",
                          antialiasing=True)
         self.agent_score_in_period = None
+        # noneInspection Expected type
         arcade.set_background_color(BG_COLOR)
 
         # AI setup
@@ -131,7 +132,7 @@ class PhysicsSimulator(arcade.Window):
         self.frame_count = 0
         self.total_score = 0.0
 
-        # scene collections (obejcts, graphs)
+        # scene collections (objects, graphs)
         self.scene_masses = [self.env.cart, self.env.bob1, self.env.bob2]
         self.action_hist = collections.deque(maxlen=300)
         self.reward_hist_data = collections.deque(maxlen=300)
@@ -294,7 +295,7 @@ if __name__ == "__main__":
     env = DoublePendulumEnv()
     env.reset()
 
-    glitched_brain_path = "saved_networks/champion_gen_1000.pkl"
+    glitched_brain_path = "saved_networks/champion_gen_100.pkl"
 
     viewer = PhysicsSimulator(env, population_path=glitched_brain_path)
     arcade.run()

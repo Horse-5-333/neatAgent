@@ -15,13 +15,13 @@ DT = 1/60.0
 ELITE_PERCENTILE = 0.1 # top creatures always advance
 ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
 CURRICULUM_STEP = 0.0025 # parameter to control difficulty progression speed
-NEXT_STAGE_CUTOFF = 1200
+NEXT_STAGE_CUTOFF = 1200 # reward required for 95% percentile, to continue cirriculum
 
-def evaluate_single_network(network_flat, run_steps, generation_seed, gravity, friction):
+def evaluate_single_network(network_flat, run_steps, generation_seed, start_var):
     # Ensure all networks in a generation face the exact same random environmental start
     random.seed(generation_seed)
     
-    env = DoublePendulumEnv(gravity=gravity, friction_multiplier=friction)
+    env = DoublePendulumEnv(start_var=start_var)
     obs = env.reset()
     fitness = 0.0
 
@@ -45,14 +45,17 @@ def run_simulation(num_generations, pop_size):
     if not os.path.exists("saved_networks"):
         os.makedirs("saved_networks")
 
-    current_gravity = 9.81 * 0.05
-    current_friction = 1.0
+    current_gravity = 9.81
+    current_friction = 0.05
+    current_variance = 0.01
 
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
         for generation in range(num_generations + 1):
             
             gen_seed = random.randint(0, 100000000)
-            eval_func = partial(evaluate_single_network, run_steps=steps, generation_seed=gen_seed, gravity=current_gravity, friction=current_friction)
+            eval_func = partial(evaluate_single_network, run_steps=steps,
+                                generation_seed=gen_seed,
+                                start_var=current_variance)
             flat_pop = [bench.export_flat() for bench in population]
             scores = list(executor.map(eval_func, flat_pop, chunksize=12))
 
@@ -62,14 +65,11 @@ def run_simulation(num_generations, pop_size):
             # all networks have a fitness score now, copy elites exactly, mutate some elites, mutate some commoners
             population.sort(key=lambda n: n.fitness, reverse=True)
 
-            champion_network = population[0]
-            median_network = population[int(0.5 * pop_size)]
+            good_performer = population[int(0.90 * pop_size)]
 
-
-
-            if median_network.fitness > NEXT_STAGE_CUTOFF:
-                current_gravity = min(9.81, current_gravity + 9.81 * CURRICULUM_STEP)
-                current_friction = max(0.0, current_friction - CURRICULUM_STEP)
+            if good_performer.fitness > NEXT_STAGE_CUTOFF:
+                current_variance = min(current_variance * 1.01, 1)
+                print(f"Variance updated to {current_variance:>5.5f} in Gen {generation}")
 
 
             if generation % 100 == 0:
@@ -77,9 +77,7 @@ def run_simulation(num_generations, pop_size):
                       f"{population[int(0.75 * pop_size)].fitness:>5.0f} "
                       f"{population[int(0.5 * pop_size)].fitness:>5.0f} "
                       f"{population[int(0.25 * pop_size)].fitness:>5.0f} "
-                      f" {population[0].fitness:>5.0f}"
-                      f"{f" G: {current_gravity:.2f}, F: {current_friction:.2f}" 
-                      if median_network.fitness > NEXT_STAGE_CUTOFF else ""} ")
+                      f" {population[0].fitness:>5.0f}")
 
                 filename = f"saved_networks/champion_gen_{generation}.pkl"
                 with open(filename, "wb") as f:

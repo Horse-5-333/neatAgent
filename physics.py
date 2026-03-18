@@ -11,6 +11,9 @@ TRACK_HEIGHT = 10
 TRACK_LENGTH = 8
 MAX_FORCE = 600 # N
 
+GRAVITY = 9.81
+FRICTION_MULT = 0.05
+
 class Vec:
     def __init__(self, x, y):
         self.x = x
@@ -327,9 +330,8 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
             reward)
 
 class DoublePendulumEnv:
-    def __init__(self, gravity=9.81*0.8, friction_multiplier=0.2):
-        self.gravity = gravity
-        self.friction_multiplier = friction_multiplier
+    def __init__(self, start_var=0):
+        self.start_var = start_var
         self.bob2 = None
         self.bob1 = None
         self.bob2_rest_length = None
@@ -339,11 +341,12 @@ class DoublePendulumEnv:
     def reset(self):
         track_home = Vec(SCREEN_WIDTH / 2, TRACK_HEIGHT)
 
-        # TODO: randomized starts of each bob to prevent overfitting
+
         theta = [random.uniform(0, 2 * math.pi), random.uniform(0, 2 * math.pi)]
-        # theta = [1 * math.pi / 2, 1 * math.pi / 2]
-        # TODO: randomized velocities tangent to direction
+        theta = [0.5 * math.pi + (self.start_var * t) for t in theta]
+
         vel = [random.uniform(-3, 3), random.uniform(-5, 5)]
+        vel = [self.start_var * v for v in vel]
 
         self.bob1_rest_length = 3.0
         self.bob2_rest_length = 3.0
@@ -364,7 +367,7 @@ class DoublePendulumEnv:
          self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y,
          self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y,
          obs0, obs1, obs2, obs3, obs4, obs5, reward) = fast_physics_step(
-             action_force, dt, self.gravity, self.friction_multiplier,
+             action_force, dt, GRAVITY, FRICTION_MULT,
              self.cart.s.x, self.cart.v.x, self.cart.mass,
              self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y, self.bob1.mass, self.bob1_rest_length,
              self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y, self.bob2.mass, self.bob2_rest_length
