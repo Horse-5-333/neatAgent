@@ -46,7 +46,7 @@ def generate_species_color(species_id):
     golden_ratio_conjugate = 0.618033988749895
     h = (species_id * golden_ratio_conjugate) % 1.0
     # Medium saturation/value for distinct but not overly aggressive colors
-    r, g, b = colorsys.hsv_to_rgb(h, 0.60, 0.75)
+    r, g, b = colorsys.hsv_to_rgb(h, 0.60, 0.70)
     return (int(r * 255), int(g * 255), int(b * 255), 255)
 
 
@@ -183,7 +183,7 @@ class NetworkVisualizer:
 
 
 class GenerationChart:
-    def __init__(self, x, y, width, height, title="Generational Fitness", max_points=100):
+    def __init__(self, x, y, width, height, title="Fitness Trend", max_points=100):
         self.x = x
         self.y = y
         self.width = width
@@ -201,7 +201,7 @@ class GenerationChart:
         
         self.total_points_added = 0
         self.grid_x_spacing = max_points // 10
-        self.min_y = -200
+        self.min_y = 0
         self.max_y = 100
         self.max_text = arcade.Text(f"{self.max_y}", x - 5, y + height - 15, arcade.color.GRAY, 10, font_name="Jetbrains Mono", anchor_x="right")
         self.min_text = arcade.Text(f"{self.min_y}", x - 5, y + 5, arcade.color.GRAY, 10, font_name="Jetbrains Mono", anchor_x="right")
@@ -236,9 +236,14 @@ class GenerationChart:
                 arcade.draw_line(px, self.y, px, self.y + self.height, SUBTLE_GRID_COLOR, 1)
 
         raw_max = max(max(self.max_fitness) * 1.10, 1.0)
+        raw_min = min(min(self.min_fitness) * 1.10, 1.0)
         current_max = math.ceil(raw_max / 10.0) * 10.0
+        current_min = math.ceil(raw_min / 10.0) * 10
         self.max_y = current_max
+        self.min_y = current_min
         self.max_text.text = f"{self.max_y:.0f}"
+        self.min_text.text = f"{self.min_y:.0f}"
+
         
         # Draw variance increased background bars
         for i in range(len(self.max_fitness)):
@@ -263,11 +268,11 @@ class GenerationChart:
         pts_max, pts_p75, pts_med, pts_p25, pts_min = [], [], [], [], []
         for i in range(len(self.max_fitness)):
             px = self.x + self.width - ((len(self.max_fitness) - 1 - i) * x_step)
-            pts_max.append((px, self.y + (self.max_fitness[i] / self.max_y) * self.height))
-            pts_p75.append((px, self.y + (self.p75_fitness[i] / self.max_y) * self.height))
-            pts_med.append((px, self.y + (self.med_fitness[i] / self.max_y) * self.height))
-            pts_p25.append((px, self.y + (self.p25_fitness[i] / self.max_y) * self.height))
-            pts_min.append((px, self.y + (self.min_fitness[i] / self.max_y) * self.height))
+            pts_max.append((px, self.y + ((self.max_fitness[i] - self.min_y) / (self.max_y - self.min_y)) * self.height))
+            pts_p75.append((px, self.y + ((self.p75_fitness[i] - self.min_y) / (self.max_y - self.min_y)) * self.height))
+            pts_med.append((px, self.y + ((self.med_fitness[i] - self.min_y) / (self.max_y - self.min_y)) * self.height))
+            pts_p25.append((px, self.y + ((self.p25_fitness[i] - self.min_y) / (self.max_y - self.min_y)) * self.height))
+            pts_min.append((px, self.y + ((self.min_fitness[i] - self.min_y) / (self.max_y - self.min_y)) * self.height))
 
         # OPACITIES: min=25%, p25=50%, med=100%, p75=50%, max=25%
         # Colors: red for median, orange for the rest
@@ -358,9 +363,9 @@ class SpeciesChart:
             
         if getattr(self, 'hover_sid', None) is not None:
             text = f" Species {self.hover_sid} "
-            tw = len(text) * 8
-            arcade.draw_lrbt_rectangle_filled(self.hover_x, self.hover_x + tw, self.hover_y, self.hover_y + 20, (30,30,30,220))
-            arcade.draw_text(text, self.hover_x, self.hover_y + 4, arcade.color.WHITE, 12, font_name="Jetbrains Mono")
+            tw = len(text) * 10
+            arcade.draw_lrbt_rectangle_filled(self.hover_x, self.hover_x + tw, self.hover_y, self.hover_y + 20, generate_species_color(self.hover_sid))
+            arcade.draw_text(text, self.hover_x, self.hover_y + 4, arcade.color.WHITE, 12, font_name="Jetbrains Mono", bold="black")
             
         arcade.draw_lbwh_rectangle_outline(self.x, self.y, self.width, self.height, LIGHT_GRAY, 1)
 
@@ -414,7 +419,7 @@ class SpeciesChart:
 
 
 class AgentInfoPanel:
-    def __init__(self, x, y, width, height, title="Active Agent Details"):
+    def __init__(self, x, y, width, height, title="Additional Info"):
         self.x = x
         self.y = y
         self.width = width
@@ -422,7 +427,7 @@ class AgentInfoPanel:
         self.title_text = arcade.Text(title, x + 5, y + height + 5, arcade.color.WHITE, 12, font_name="Jetbrains Mono")
         
         self.gen_text = arcade.Text("Generation: -", x + 15, y + height - 25, LIGHT_GRAY, 12, font_name="Jetbrains Mono")
-        self.species_text = arcade.Text("Species ID: -", x + 15, y + height - 50, arcade.color.WHITE, 12, font_name="Jetbrains Mono", bold=True)
+        self.species_text = arcade.Text("Species ID: -", x + 15, y + height - 50, LIGHT_GRAY, 12, font_name="Jetbrains Mono", bold=True)
         self.nodes_text = arcade.Text("Nodes: -", x + 15, y + height - 75, LIGHT_GRAY, 12, font_name="Jetbrains Mono")
         self.synapses_text = arcade.Text("Synapses: -", x + 15, y + height - 100, LIGHT_GRAY, 12, font_name="Jetbrains Mono")
         self.variance_text = arcade.Text("Env. Variance: -", x + 15, y + height - 125, LIGHT_GRAY, 12, font_name="Jetbrains Mono")
@@ -436,13 +441,14 @@ class AgentInfoPanel:
         self.species_id = getattr(network, 'species_id', None)
         if self.species_id is not None:
             self.species_text.text = f"Species: {self.species_id}"
+            self.species_text.color = arcade.color.WHITE
             self.species_color = generate_species_color(self.species_id)
         
-        self.nodes_text.text = f"Total Nodes: {len(network.neurons)}"
+        self.nodes_text.text = f"Hidden Neurons: {sum(1 for n in network.neurons if n.type == "HIDDEN")}"
         active_synapses = sum(1 for s in network.connections if s.enabled)
         self.synapses_text.text = f"Active Synapses: {active_synapses}"
         
-        self.variance_text.text = f"Env. Variance: {variance:.3f}"
+        self.variance_text.text = f"Variance: {variance:.3f}"
         self.live_species_text.text = f"Alive Species: {alive_species}"
 
     def draw(self):
@@ -453,12 +459,11 @@ class AgentInfoPanel:
         self.gen_text.draw()
         
         if self.species_id is not None:
-            pad_x = 5
-            pad_y = 2
-            arcade.draw_lrbt_rectangle_filled(self.species_text.x - pad_x, 
-                                              self.species_text.x + self.species_text.content_width + pad_x, 
-                                              self.species_text.y - pad_y, 
-                                              self.species_text.y + self.species_text.content_height + pad_y, 
+            y_margin = 4
+            arcade.draw_lrbt_rectangle_filled(self.species_text.x,
+                                              self.species_text.x + self.species_text.content_width,
+                                              self.species_text.y - y_margin,
+                                              self.species_text.y + self.species_text.content_height - y_margin,
                                               self.species_color)
             
         self.species_text.draw()
@@ -565,7 +570,7 @@ class TrainingApp(arcade.Window):
         self.sim_queue = queue.Queue()
         self.training_running = False
         
-        self.gen0_path = "saved_networks/champion_gen_0.pkl" 
+        self.gen0_path = "" #"saved_networks/champion_gen_00.pkl"
         self.env = DoublePendulumEnv(start_var=0.05)
         self.current_obs = self.env.reset()
         self.active_network = None
@@ -580,31 +585,106 @@ class TrainingApp(arcade.Window):
         self.hud_camera = arcade.Camera2D()
 
         # Dynamic layout for panels
-        margin = 35
-        panel_w = 350
+        margin = 55
+        panel_w = 300
         panel_h = 160
         y_top = self.height - margin - panel_h - 40 # extra space for the headers
         
-        self.gen_chart = GenerationChart(margin + 20, y_top, panel_w - 20, panel_h, title="Generational Fitness")
-        self.species_chart = SpeciesChart(margin * 2 + panel_w + 20, y_top, panel_w - 20, panel_h, title="Species Demographics")
+        self.gen_chart = GenerationChart(margin + 20, y_top, panel_w - 20, panel_h, title="Fitness Trend")
+        self.species_chart = SpeciesChart(margin * 2 + panel_w + 20, y_top, panel_w - 20, panel_h, title="Population Distribution")
         self.net_vis = NetworkVisualizer(margin * 3 + panel_w * 2 + 20, y_top, panel_w - 20, panel_h)
         
         bottom_y = margin
-        self.action_chart = LiveLineChart(margin + 20, bottom_y, panel_w - 20, panel_h, title="Agent Engine Force", min_y=-1, max_y=1, max_points=300, line_color=ACC1_COLOR)
-        self.reward_chart = LiveLineChart(margin * 2 + panel_w + 20, bottom_y, panel_w - 20, panel_h, title="Real-time Reward", min_y=-2, max_y=2, max_points=300, line_color=ACC2_COLOR, dynamic_y=True, is_reward=True)
+        self.action_chart = LiveLineChart(margin + 20, bottom_y, panel_w - 20, panel_h, title="Applied Force", min_y=-1, max_y=1, max_points=300, line_color=ACC1_COLOR)
+        self.reward_chart = LiveLineChart(margin * 2 + panel_w + 20, bottom_y, panel_w - 20, panel_h, title="Cumulative Reward: 0.0", min_y=-2, max_y=2, max_points=300, line_color=ACC2_COLOR, dynamic_y=True, is_reward=True)
         self.agent_info = AgentInfoPanel(margin * 3 + panel_w * 2 + 20, bottom_y, panel_w - 20, panel_h)
 
-        self.status_text = arcade.Text("Status: STOPPED", margin, self.height - 35, ACC1_COLOR, 18, font_name="Jetbrains Mono", bold=True)
-        self.controls_text = arcade.Text("[SPACE] Start/Stop Training", self.width - 250, self.height - 35, ACC3_COLOR, 14, font_name="Jetbrains Mono", anchor_x="right")
+        self.status_text = arcade.Text("[SPACE] TO START", margin + 20, self.height - 55, ACC1_COLOR, 18, font_name="Jetbrains Mono", bold=True)
+        self.controls_text = arcade.Text("", self.width - 250, self.height - 35, ACC3_COLOR, 14, font_name="Jetbrains Mono", anchor_x="right")
         self.fps_text = arcade.Text("FPS: 0", self.width - 50, self.height - 35, LIGHT_GRAY, 14, font_name="Jetbrains Mono", anchor_x="right")
 
+        # --- SCI-FI HUD SHADER SETUP ---
+        # 1. The invisible canvas (Framebuffer)
+        self.hud_texture = self.ctx.texture((self.width, self.height))
+        self.hud_fbo = self.ctx.framebuffer(color_attachments=[self.hud_texture])
+
+        # 2. The projection screen
+        self.screen_quad = arcade.gl.geometry.quad_2d_fs()
+
+        # 3. The Master Shader
+        self.barrel_shader = self.ctx.program(
+            vertex_shader="""
+                    #version 330
+                    in vec2 in_vert;
+                    out vec2 v_uv;
+                    void main() {
+                        gl_Position = vec4(in_vert, 0.0, 1.0);
+                        v_uv = in_vert * 0.5 + 0.5;
+                    }
+                    """,
+            fragment_shader="""
+                    #version 330
+                    uniform sampler2D texture0;
+                    in vec2 v_uv;
+                    out vec4 fragColor;
+
+                    void main() {
+                        // Shift UVs to center (-1.0 to 1.0)
+                        vec2 uv = v_uv * 2.0 - 1.0;
+                        
+                        // Keep the raw distance for the vignette and chromatic aberration later
+                        float dist = length(uv);
+                        
+                        // 1. INDEPENDENT CYLINDRICAL WARP
+                        float warp_x = -0.005;   // Bends vertical lines (0.0 = perfectly straight)
+                        float warp_y = -0.02;  // Bends horizontal lines 
+                        
+                        vec2 warped_uv;
+                        // X coordinates are pushed outward based on how high/low they are
+                        warped_uv.x = uv.x * (1.0 + warp_x * uv.y * uv.y);
+                        // Y coordinates are pushed outward based on how far left/right they are
+                        warped_uv.y = uv.y * (1.0 + warp_y * uv.x * uv.x);
+                        
+                        uv = warped_uv;
+                        
+                        // Shift UVs back to normal (0.0 to 1.0)
+                        uv = (uv + 1.0) * 0.5;
+        
+                        // Crop edges that get pulled too far inward
+                        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+                            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+                            return;
+                        }
+
+                        // Chromatic Aberration
+                        float ca_strength = 0.0002 * dist; 
+                        vec2 offset = (uv - 0.5) * ca_strength;
+
+                        float r = texture(texture0, uv + offset).r;
+                        float g = texture(texture0, uv).g;
+                        float b = texture(texture0, uv - offset).b;
+                        float a = texture(texture0, uv).a;
+                        vec4 color = vec4(r, g, b, a);
+
+                        // Scanlines & Vignette
+                        float scanline = sin(uv.y * 1000.0) * 0.02; 
+                        color.rgb -= scanline;
+                        float vignette = smoothstep(1.2, 0.8, dist);
+                        color.rgb *= 1.0 - (vignette * 0.4);
+
+                        color.rgb *= 1.15; 
+
+                        fragColor = color;
+                    }
+                    """
+        )
 
     def toggle_pause(self):
         global PAUSE_FLAG
         if not self.training_running:
             self.training_running = True
             PAUSE_FLAG = False
-            self.status_text.text = "Status: TRAINING (Booting...)"
+            self.status_text.text = "STARTING TRAINING..."
             self.status_text.color = ACC3_COLOR
             
             seed_net = None
@@ -623,10 +703,10 @@ class TrainingApp(arcade.Window):
         else:
             PAUSE_FLAG = not PAUSE_FLAG
             if PAUSE_FLAG:
-                self.status_text.text = "Status: PAUSED"
-                self.status_text.color = arcade.color.YELLOW
+                self.status_text.text = f"PAUSED"
+                self.status_text.color = ACC1_COLOR
             else:
-                self.status_text.text = "Status: TRAINING (Resumed)"
+                self.status_text.text = "RESUMING TRAINING..."
                 self.status_text.color = ACC3_COLOR
 
     def on_mouse_motion(self, x, y, dx, dy):
@@ -663,7 +743,7 @@ class TrainingApp(arcade.Window):
             
             if isinstance(newest_update, str):
                 if newest_update == "STOPPED":
-                    self.status_text.text = "Status: STOPPED"
+                    self.status_text.text = "STOPPED"
                 continue
 
             max_f = newest_update['max_f']
@@ -679,7 +759,11 @@ class TrainingApp(arcade.Window):
             current_variance = newest_update['variance']
             alive_count = newest_update['alive_species']
             
-            self.status_text.text = f"Status: Training Generation {gen}"
+            self.status_text.text = f"TRAINING GENERATION {gen:0>4}"
+            self.status_text.color = ACC3_COLOR
+            if PAUSE_FLAG:
+                self.status_text.text = f"PAUSED TRAINING ON GENERATION {gen:0>4}"
+                self.status_text.color = ACC1_COLOR
             
             self.gen_chart.add_data(max_f, p75_f, med_f, p25_f, min_f, gen, var_up)
             self.species_chart.add_data(s_dict, s_champs, gen)
@@ -698,7 +782,7 @@ class TrainingApp(arcade.Window):
                 self.net_vis.update_network(self.active_network)
                 self.agent_info.update_info(self.active_network, self.active_gen_display, self.active_var_buffer, self.active_alive_buffer)
             
-            self.env = DoublePendulumEnv(start_var=0.0) 
+            self.env = DoublePendulumEnv(start_var=0.0)
             self.current_obs = self.env.reset()
             self.fitness_sum = 0.0
             # Cancel the instant velocity that happens from 0.0 start_var pushing down the pendulum to prevent haunted swing
@@ -747,18 +831,40 @@ class TrainingApp(arcade.Window):
             for b, bx, by in [(self.env.bob1, b1_x, b1_y), (self.env.bob2, b2_x, b2_y)]:
                 arcade.draw_circle_filled(bx, by, b.radius_m * PPM, ACC1_COLOR)
 
-        with self.hud_camera.activate():
-            self.gen_chart.draw()
-            self.species_chart.draw()
-            self.net_vis.draw()
-            
-            self.action_chart.draw()
-            self.reward_chart.draw()
-            self.agent_info.draw()
-            
-            self.status_text.draw()
-            self.controls_text.draw()
-            self.fps_text.draw()
+                # Select the invisible canvas
+                self.hud_fbo.use()
+                # Clear it with transparency so we can see the physics through it later
+                self.hud_fbo.clear(color=(0, 0, 0, 0))
+
+                # Look through the UI lens and draw
+                with self.hud_camera.activate():
+                    self.gen_chart.draw()
+                    self.species_chart.draw()
+                    self.net_vis.draw()
+
+                    self.action_chart.draw()
+                    self.reward_chart.draw()
+                    self.agent_info.draw()
+
+                    self.status_text.draw()
+                    self.controls_text.draw()
+                    self.fps_text.draw()
+
+                # ---------------------------------------------------------
+                # 4. WARP AND RENDER THE CANVAS OVER THE PHYSICS
+                # ---------------------------------------------------------
+                # Switch back to drawing on the real screen
+                self.ctx.screen.use()
+
+                # Enable blending so the transparent parts of the UI show the physics behind it
+                self.ctx.enable(self.ctx.BLEND)
+
+                # Feed our drawn-on invisible canvas to the shader
+                self.hud_texture.use(0)
+                self.barrel_shader["texture0"] = 0
+
+                # Render it! (This automatically covers the whole screen, no camera needed here)
+                self.screen_quad.render(self.barrel_shader)
 
 
 def draw_vec_adj(tail_x, tail_y, vec_x, vec_y, color, thickness=2, x_offset=0, y_offset=0):
@@ -806,7 +912,7 @@ def runner_loop(ui_queue, seed_network):
     if not os.path.exists("saved_networks"):
         os.makedirs("saved_networks")
 
-    current_variance = 0.00
+    current_variance = 0.05
     compatibility_threshold = COMPATIBILITY_THRESHOLD
 
     optimal_workers = max(1, os.cpu_count() - 2)
@@ -878,10 +984,16 @@ def runner_loop(ui_queue, seed_network):
             # Keep the floor to prevent the TV static but do not enforce a tight upper bound
             compatibility_threshold = max(0.5, compatibility_threshold)
 
+            min_fitness = min(n.fitness for n in population)
+            fitness_shift = 0.0
+            if min_fitness < 0:
+                fitness_shift = -min_fitness
+
             # Calculate adjusted fitness
             for network in population:
                 species_size = len(species_members[network.species_id])
-                network.adjusted_fitness = network.fitness / species_size
+                # network.fitness += fitness_shift
+                network.adjusted_fitness = (network.fitness + fitness_shift) / species_size
 
             population.sort(key=lambda n: n.adjusted_fitness, reverse=True)
             best_raw = max(population, key=lambda n: n.fitness)
@@ -889,7 +1001,7 @@ def runner_loop(ui_queue, seed_network):
 
             var_inc = False
             if good_performer_raw > NEXT_STAGE_CUTOFF:
-                current_variance = min(current_variance + CURRICULUM_STEP, 1.0)
+                current_variance = current_variance + CURRICULUM_STEP
                 var_inc = True
 
             species_sizes = {s_idx: len(members) for s_idx, members in species_members.items()}
@@ -998,7 +1110,6 @@ def runner_loop(ui_queue, seed_network):
     if KILL_FLAG:
         print("Thread elegantly halted via SPAceBAR KILL_FLAG.")
     ui_queue.put("STOPPED")
-
 
 if __name__ == "__main__":
     app = TrainingApp()

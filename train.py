@@ -55,7 +55,7 @@ def run_simulation(num_generations, pop_size):
 
     current_gravity = 9.81
     current_friction = 0.05
-    current_variance = 0.05
+    current_variance = 1.5
     compatibility_threshold = COMPATIBILITY_THRESHOLD
 
     next_species_id = 0
@@ -129,7 +129,7 @@ def run_simulation(num_generations, pop_size):
             good_performer_raw = sorted([n.frames for n in population], reverse=True)[int(0.10 * pop_size)]
 
             if good_performer_raw > NEXT_STAGE_CUTOFF:
-                current_variance = min(current_variance + CURRICULUM_STEP, 1.0)
+                current_variance = current_variance + CURRICULUM_STEP
                 print(f"Variance updated to {current_variance:>5.5f} in Gen {generation}")
 
             if generation % 1 == 0:

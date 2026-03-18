@@ -8,14 +8,14 @@ SCREEN_HEIGHT = 16
 PPM = 100 # pixels per meter
 EPSILON = 1e-6
 TRACK_HEIGHT = 9
-TRACK_LENGTH = 8
+TRACK_LENGTH = 6
 MAX_FORCE = 8 # N
 SCREEN_WIDTH_HALF = SCREEN_WIDTH / 2
 SCREEN_HEIGHT_HALF = SCREEN_HEIGHT / 2
 TRACK_LENGTH_HALF = TRACK_LENGTH / 2
 
-GRAVITY = 2
-FRICTION_MULT = .5
+GRAVITY = 9.81
+FRICTION_MULT = 1.0
 
 class Vec:
     def __init__(self, x, y):
@@ -326,7 +326,7 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
     normalized_height = (b2_y - TRACK_HEIGHT) / max_length
 
     # 1. Height is still the primary goal
-    reward = normalized_height
+    reward = abs(normalized_height) * normalized_height
 
     # 2. Centering Penalty: Softly pull it to the middle of the track (obs0 is cart_obs_x)
     reward -= 0.1 * abs(cart_obs_x)
@@ -380,7 +380,7 @@ class DoublePendulumEnv:
         vel = [self.start_var * v for v in vel]
 
         self.bob1_rest_length = 0.5
-        self.bob2_rest_length = 0.5
+        self.bob2_rest_length = 0.6
         bob1_start_s = track_home + self.bob1_rest_length * Vec(math.cos(theta[0]), math.sin(theta[0]))
         bob2_start_s = bob1_start_s + self.bob2_rest_length * Vec(math.cos(theta[1]), math.sin(theta[1]))
         bob1_start_v = vel[0] * Vec(-math.sin(theta[0]), math.cos(theta[0]))
@@ -395,11 +395,13 @@ class DoublePendulumEnv:
         return self.observations()
 
     def step(self, action_force, dt=1/60.0):
+        g = GRAVITY * max(0.2, self.start_var)
+        fric = FRICTION_MULT * max(0.05, 0.75 - self.start_var)
         (self.cart.s.x, self.cart.v.x,
          self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y,
          self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y,
          obs0, obs1, obs2, obs3, obs4, obs5, obs6, obs7, obs8, obs9, reward, frame) = fast_physics_step(
-             action_force, dt, GRAVITY, FRICTION_MULT,
+             action_force, dt, g, fric,
              self.cart.s.x, self.cart.v.x, self.cart.mass,
              self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y, self.bob1.mass, self.bob1_rest_length,
              self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y, self.bob2.mass, self.bob2_rest_length,
