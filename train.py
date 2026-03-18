@@ -12,14 +12,14 @@ import io
 from agent import gen0_network, InnovationManager, Network, fast_forward_pass_flat
 from physics import DoublePendulumEnv
 
-POPULATION = 96
-GENERATIONS = 1000
+POPULATION = 256
+GENERATIONS = 50
 SIM_TIME = 20
 DT = 1/60.0
 ELITE_PERCENTILE = 0.1 # top creatures always advance
 ELITE_MUTATE = 0.8 # fill most of the population with mutations of elites, rest with mutations of commoners
 CURRICULUM_STEP = 0.005 # parameter to control difficulty progression speed
-NEXT_STAGE_CUTOFF = 800 # upright frames required for 90% percentile, to continue curriculum
+NEXT_STAGE_CUTOFF = 400 # upright frames required for 90% percentile, to continue curriculum
 COMPATIBILITY_THRESHOLD = 15.0
 
 def evaluate_single_network(network_flat, run_steps, generation_seed, start_var):
@@ -54,7 +54,7 @@ def run_simulation(num_generations, pop_size):
 
     current_gravity = 9.81
     current_friction = 0.05
-    current_variance = 0.00
+    current_variance = 0.05
     compatibility_threshold = COMPATIBILITY_THRESHOLD
 
     with concurrent.futures.process.ProcessPoolExecutor(max_workers=8) as executor:
@@ -65,7 +65,7 @@ def run_simulation(num_generations, pop_size):
                                 generation_seed=gen_seed,
                                 start_var=current_variance)
             flat_pop = [bench.export_flat() for bench in population]
-            eval_results = list(executor.map(eval_func, flat_pop, chunksize=12))
+            eval_results = list(executor.map(eval_func, flat_pop, chunksize=32))
 
             for i in range(pop_size):
                 population[i].fitness, population[i].frames = eval_results[i]
@@ -88,12 +88,12 @@ def run_simulation(num_generations, pop_size):
                     species_members[s_idx].append(network)
                     network.species_id = s_idx
 
-            target_species = 8
+            target_species = 15
             if len(species_reps) > target_species:
-                compatibility_threshold += 0.1
+                compatibility_threshold += 0.5
             elif len(species_reps) < target_species:
-                compatibility_threshold -= 0.1
-            compatibility_threshold = min(max(0.05, compatibility_threshold), 8.0)
+                compatibility_threshold -= 0.5
+            compatibility_threshold = max(0.5, compatibility_threshold)
 
             # Calculate adjusted fitness
             for network in population:
@@ -110,7 +110,7 @@ def run_simulation(num_generations, pop_size):
                 current_variance = min(current_variance + CURRICULUM_STEP, 1.0)
                 print(f"Variance updated to {current_variance:>5.5f} in Gen {generation}")
 
-            if generation % 50 == 0:
+            if generation % 1 == 0:
                 print(f"Generation {generation:>4} | Species: {len(species_reps)} | Best Raw Fitness: {best_raw.fitness:>5.0f}")
                 print(f"Top Adj. Fit: {population[0].adjusted_fitness:>5.0f} | Median Adj. Fit: {population[int(0.5 * pop_size)].adjusted_fitness:>5.0f}")
 

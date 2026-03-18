@@ -1,7 +1,7 @@
 import math
 import random
 from numba import njit
-
+from numba.parfors.parfor_lowering import replace_var_with_array_in_block
 
 SCREEN_WIDTH = 14  # meters
 SCREEN_HEIGHT = 16
@@ -176,7 +176,8 @@ def resolve_collision(m1, m2):
 def fast_physics_step(action_force, dt, gravity, friction_multiplier,
                       cart_x, cart_v_x, cart_mass,
                       b1_x, b1_y, b1_vx, b1_vy, b1_mass, b1_rest,
-                      b2_x, b2_y, b2_vx, b2_vy, b2_mass, b2_rest):
+                      b2_x, b2_y, b2_vx, b2_vy, b2_mass, b2_rest,
+                      start_var):
     sub_steps = 3
     sub_dt = dt / sub_steps
 
@@ -307,25 +308,21 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
     phi = math.atan2(rod2_y, rod2_x) / math.pi
     w = math.tanh(math.hypot(b2_vx, b2_vy) / 6.0)
 
-    b1_height = (b1_y - (TRACK_HEIGHT - b1_rest)) / b1_rest
-    b2_height = ((b2_y - (TRACK_HEIGHT - b1_rest - b2_rest)) / (b1_rest + b2_rest))
-    reward = (b1_height * b1_height + b2_height * b2_height) / 2.0
-
-    distance_to_center = cart_obs_x
-    central_mult = math.exp(-2.0 * (distance_to_center * distance_to_center))
-    reward *= central_mult
-
-    b1_speed_sq = b1_vx * b1_vx + b1_vy * b1_vy
-    b2_speed_sq = b2_vx * b2_vx + b2_vy * b2_vy
-
-    if b1_speed_sq > 25.0:
-        reward *= 25.0 / b1_speed_sq
-    if b2_speed_sq > 25.0:
-        reward *= 25.0 / b2_speed_sq
+    if b2_y > TRACK_HEIGHT + b1_rest + b2_rest - 0.25:
+        reward = 1.0
+    # elif b2_y > TRACK_HEIGHT + b1_rest:
+    #     reward = 1.0
+    # elif b2_y > TRACK_HEIGHT:
+    #     reward = 0.5
+    else:
+        reward = -2.0
 
     frame = False
-    if b1_y > TRACK_HEIGHT:
+    if b1_y > TRACK_HEIGHT and b2_y > TRACK_HEIGHT + (b1_rest / 2.0):
         frame = True
+
+    if cart_obs_x < -0.90 or cart_obs_x > 0.90:
+        reward = -15.0
 
     return (cart_x, cart_v_x, 
             b1_x, b1_y, b1_vx, b1_vy, 
@@ -341,13 +338,17 @@ class DoublePendulumEnv:
         self.bob2_rest_length = None
         self.bob1_rest_length = None
         self.cart = None
+        self.height_pts = 0.0
 
     def reset(self):
+        self.height_pts = 0.0
         track_home = Vec(SCREEN_WIDTH / 2, TRACK_HEIGHT)
 
-
-        theta = [random.uniform(-math.pi, math.pi), random.uniform(-math.pi, math.pi)]
-        theta = [0.5 * math.pi + (self.start_var * t) for t in theta]
+        side = random.choice([-1.0, 1.0])
+        base_angle_shift = self.start_var * math.pi * side
+        base_angle = 0.5 * math.pi + base_angle_shift
+        
+        theta = [base_angle + random.uniform(-0.1, 0.1), base_angle + random.uniform(-0.1, 0.1)]
 
         vel = [random.uniform(-3, 3), random.uniform(-5, 5)]
         vel = [self.start_var * v for v in vel]
@@ -374,13 +375,24 @@ class DoublePendulumEnv:
              action_force, dt, GRAVITY, FRICTION_MULT,
              self.cart.s.x, self.cart.v.x, self.cart.mass,
              self.bob1.s.x, self.bob1.s.y, self.bob1.v.x, self.bob1.v.y, self.bob1.mass, self.bob1_rest_length,
-             self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y, self.bob2.mass, self.bob2_rest_length
+             self.bob2.s.x, self.bob2.s.y, self.bob2.v.x, self.bob2.v.y, self.bob2.mass, self.bob2_rest_length,
+             self.start_var
          )
          
         self.cart.s.y = 10.0
         self.cart.v.y = 0.0
 
-        return [obs0, obs1, obs2, obs3, obs4, obs5], reward, frame
+        self.height_pts += reward
+        if self.height_pts < 0.0:
+            self.height_pts = 0.0
+
+        final_reward = self.height_pts
+        if -0.85 < obs0 <  0.85:
+            final_reward += 1
+        else:
+            final_reward = 0
+
+        return [obs0, obs1, obs2, obs3, obs4, obs5], final_reward, frame
 
     def observations(self):
         cart_x = (2*self.cart.s.x - SCREEN_WIDTH)/TRACK_LENGTH

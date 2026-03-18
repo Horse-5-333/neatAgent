@@ -109,7 +109,7 @@ class Network:
         all_innovations = set(my_synapses.keys()) | set(other_synapses.keys())
         
         N = max(len(my_synapses), len(other_synapses))
-        if N < 20: 
+        if N < 6: # unmutated entirely
             N = 1.0 # Standard NEAT logic, don't normalize small networks
 
         disjoint_excess = 0
