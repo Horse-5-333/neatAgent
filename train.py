@@ -34,7 +34,10 @@ def evaluate_single_network(network_flat, run_steps, generation_seed, start_var)
 
     for _ in range(run_steps):
         action = fast_forward_pass_flat(network_flat, obs)
-        obs, reward, frame = env.step(action)
+        obs, reward, frame, fail = env.step(action)
+        if fail:
+            fitness = 0.0
+            break
         fitness += reward
         if frame:
             frames += 1

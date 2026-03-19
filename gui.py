@@ -17,14 +17,32 @@ from functools import partial
 from physics import Vec, DoublePendulumEnv, TRACK_HEIGHT, TRACK_LENGTH, SCREEN_WIDTH, SCREEN_HEIGHT, PPM
 from agent import gen0_network, InnovationManager, Network, fast_forward_pass_flat
 
+def random_color(seed=-1):
+    golden_ratio_conjugate = 0.618033988749895
+    seed = seed if seed != -1 else random.randrange(1, 10000)
+    h = (seed * golden_ratio_conjugate) % 1.0
+    # Medium saturation/value for distinct but not overly aggressive colors
+    r, g, b = colorsys.hsv_to_rgb(h, 0.60, 0.70)
+    return (int(255 * r), int(255 * g), int(255 * b))
+
+def hue_shift(color, n):
+    r, g, b = color
+    r *= 1 / 255.0
+    g *= 1 / 255.0
+    b *= 1 / 255.0
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    r, g, b = colorsys.hsv_to_rgb(h + (1/n), s, v)
+    return (int(255 * r), int(255 * g), int(255 * b))
+
 BG_COLOR = (26, 29, 26)
 TXT_COLOR = (247, 247, 249)
 DARK_GRAY = (51, 82, 88)
 LIGHT_GRAY = (165, 178, 182)
-ACC1_COLOR = (219, 127, 103)
-ACC2_COLOR = (143, 45, 86)
-ACC3_COLOR = (112, 160, 115) # Muted green accent requested
-SUBTLE_GRID_COLOR = (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 50)
+ACC1_COLOR = random_color()
+ACC2_COLOR = hue_shift(ACC1_COLOR, 3)
+ACC3_COLOR = hue_shift(ACC2_COLOR, 3) # Muted green accent requested
+SUBTLE_GRID_COLOR = (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 200)
+
 
 # Training Constants
 POPULATION = 256
@@ -39,15 +57,6 @@ COMPATIBILITY_THRESHOLD = 5.0
 
 
 from train import evaluate_single_network
-
-
-def generate_species_color(species_id):
-    # Use golden ratio conjugate to uniformly scatter hues across the color wheel
-    golden_ratio_conjugate = 0.618033988749895
-    h = (species_id * golden_ratio_conjugate) % 1.0
-    # Medium saturation/value for distinct but not overly aggressive colors
-    r, g, b = colorsys.hsv_to_rgb(h, 0.60, 0.70)
-    return (int(r * 255), int(g * 255), int(b * 255), 255)
 
 
 class NetworkVisualizer:
@@ -276,11 +285,11 @@ class GenerationChart:
 
         # OPACITIES: min=25%, p25=50%, med=100%, p75=50%, max=25%
         # Colors: red for median, orange for the rest
-        c_min = (255, 165, 0, 64)
-        c_p25 = (255, 165, 0, 128)
+        c_min = (ACC1_COLOR[0], ACC1_COLOR[1], ACC1_COLOR[2], 128)
+        c_p25 = (ACC1_COLOR[0], ACC1_COLOR[1], ACC1_COLOR[2], 192)
         c_med = (ACC2_COLOR[0], ACC2_COLOR[1], ACC2_COLOR[2], 255)
-        c_p75 = (255, 165, 0, 128)
-        c_max = (255, 165, 0, 64)
+        c_p75 = (ACC1_COLOR[0], ACC1_COLOR[1], ACC1_COLOR[2], 192)
+        c_max = (ACC1_COLOR[0], ACC1_COLOR[1], ACC1_COLOR[2], 128)
 
         arcade.draw_line_strip(pts_min, c_min, 2)
         arcade.draw_line_strip(pts_p25, c_p25, 2)
@@ -364,7 +373,7 @@ class SpeciesChart:
         if getattr(self, 'hover_sid', None) is not None:
             text = f" Species {self.hover_sid} "
             tw = len(text) * 10
-            arcade.draw_lrbt_rectangle_filled(self.hover_x, self.hover_x + tw, self.hover_y, self.hover_y + 20, generate_species_color(self.hover_sid))
+            arcade.draw_lrbt_rectangle_filled(self.hover_x, self.hover_x + tw, self.hover_y, self.hover_y + 20, random_color(self.hover_sid))
             arcade.draw_text(text, self.hover_x, self.hover_y + 4, arcade.color.WHITE, 12, font_name="Jetbrains Mono", bold="black")
             
         arcade.draw_lbwh_rectangle_outline(self.x, self.y, self.width, self.height, LIGHT_GRAY, 1)
@@ -393,7 +402,7 @@ class SpeciesChart:
             
             prev_sid = 0
             for sid in sorted_ids:
-                color = generate_species_color(sid)
+                color = random_color(sid)
                 
                 y_bottom = stacked_y[i][prev_sid]
                 y_top = stacked_y[i][sid]
@@ -442,7 +451,7 @@ class AgentInfoPanel:
         if self.species_id is not None:
             self.species_text.text = f"Species: {self.species_id}"
             self.species_text.color = arcade.color.WHITE
-            self.species_color = generate_species_color(self.species_id)
+            self.species_color = random_color(self.species_id)
         
         self.nodes_text.text = f"Hidden Neurons: {sum(1 for n in network.neurons if n.type == "HIDDEN")}"
         active_synapses = sum(1 for s in network.connections if s.enabled)
@@ -524,12 +533,12 @@ class LiveLineChart:
 
     def draw(self):
         arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, (DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2], 25))
-        arcade.draw_lbwh_rectangle_outline(self.x, self.y, self.width, self.height, LIGHT_GRAY, 1)
+        arcade.draw_lbwh_rectangle_outline(self.x, self.y, self.width, self.height, LIGHT_GRAY, 1.5)
         
         grid_y_divisions = 6
         for j in range(1, grid_y_divisions):
             py = self.y + (j / grid_y_divisions) * self.height
-            arcade.draw_line(self.x, py, self.x + self.width, py, SUBTLE_GRID_COLOR, 1)
+            arcade.draw_line(self.x, py, self.x + self.width, py, SUBTLE_GRID_COLOR, 1.5)
 
         if len(self.data) > 1:
             x_step = self.width / (self.max_points - 1)
@@ -537,7 +546,7 @@ class LiveLineChart:
             for i in range(len(self.data)):
                 if (start_index + i) % self.grid_x_spacing == 0:
                     px = self.x + self.width - ((len(self.data) - 1 - i) * x_step)
-                    arcade.draw_line(px, self.y, px, self.y + self.height, SUBTLE_GRID_COLOR, 1)
+                    arcade.draw_line(px, self.y, px, self.y + self.height, SUBTLE_GRID_COLOR, 1.5)
 
         if self.min_y <= 0 <= self.max_y:
             x_height = (-self.min_y / (self.max_y - self.min_y)) * self.height
@@ -578,7 +587,7 @@ class TrainingApp(arcade.Window):
         self.fitness_sum = 0.0
         
         self.frame_count = 0
-        self.frames_per_cycle = 720 
+        self.frames_per_cycle = 300
         self.fps_queue = collections.deque(maxlen=60)
         
         self.main_camera = arcade.Camera2D()
@@ -596,7 +605,7 @@ class TrainingApp(arcade.Window):
         
         bottom_y = margin
         self.action_chart = LiveLineChart(margin + 20, bottom_y, panel_w - 20, panel_h, title="Applied Force", min_y=-1, max_y=1, max_points=300, line_color=ACC1_COLOR)
-        self.reward_chart = LiveLineChart(margin * 2 + panel_w + 20, bottom_y, panel_w - 20, panel_h, title="Cumulative Reward: 0.0", min_y=-2, max_y=2, max_points=300, line_color=ACC2_COLOR, dynamic_y=True, is_reward=True)
+        self.reward_chart = LiveLineChart(margin * 2 + panel_w + 20, bottom_y, panel_w - 20, panel_h, title="Cumulative Reward: 0.0", min_y=0, max_y=2, max_points=300, line_color=ACC2_COLOR, dynamic_y=True, is_reward=True)
         self.agent_info = AgentInfoPanel(margin * 3 + panel_w * 2 + 20, bottom_y, panel_w - 20, panel_h)
 
         self.status_text = arcade.Text("[SPACE] TO START", margin + 20, self.height - 55, ACC1_COLOR, 18, font_name="Jetbrains Mono", bold=True)
@@ -604,7 +613,11 @@ class TrainingApp(arcade.Window):
         self.fps_text = arcade.Text("FPS: 0", self.width - 50, self.height - 35, LIGHT_GRAY, 14, font_name="Jetbrains Mono", anchor_x="right")
 
         # --- SCI-FI HUD SHADER SETUP ---
-        # 1. The invisible canvas (Framebuffer)
+        # 1. The MSAA canvas (where we draw with smooth edges)
+        self.hud_texture_msaa = self.ctx.texture((self.width, self.height), samples=4)  # 4x MSAA
+        self.hud_fbo_msaa = self.ctx.framebuffer(color_attachments=[self.hud_texture_msaa])
+
+        # 2. The standard canvas (where the flattened, resolved image goes for the shader)
         self.hud_texture = self.ctx.texture((self.width, self.height))
         self.hud_fbo = self.ctx.framebuffer(color_attachments=[self.hud_texture])
 
@@ -667,12 +680,12 @@ class TrainingApp(arcade.Window):
                         vec4 color = vec4(r, g, b, a);
 
                         // Scanlines & Vignette
-                        float scanline = sin(uv.y * 1000.0) * 0.02; 
-                        color.rgb -= scanline;
-                        float vignette = smoothstep(1.2, 0.8, dist);
-                        color.rgb *= 1.0 - (vignette * 0.4);
+                        // float scanline = sin(uv.y * 900.0) * 0.2; 
+                        // color.rgb -= scanline;
+                        float vignette = smoothstep(0.7, 1.3, dist);
+                        color.rgb *= 1.0 - (0.4 * vignette);
 
-                        color.rgb *= 1.15; 
+                        color.rgb *= 1.2;
 
                         fragColor = color;
                     }
@@ -793,7 +806,10 @@ class TrainingApp(arcade.Window):
 
         if self.active_network:
             force = self.active_network.forward_pass(self.current_obs)
-            self.current_obs, reward, _ = self.env.step(force, 1/60.0)
+            self.current_obs, reward, frame, fail = self.env.step(force, 1/60.0)
+            if fail:
+                self.frame_count = self.frames_per_cycle + 1
+
             self.fitness_sum += reward
             # Add action to LiveLineChart 
             self.action_chart.add_point(force)
@@ -832,9 +848,9 @@ class TrainingApp(arcade.Window):
                 arcade.draw_circle_filled(bx, by, b.radius_m * PPM, ACC1_COLOR)
 
                 # Select the invisible canvas
-                self.hud_fbo.use()
+                self.hud_fbo_msaa.use()  # CHANGED
                 # Clear it with transparency so we can see the physics through it later
-                self.hud_fbo.clear(color=(0, 0, 0, 0))
+                self.hud_fbo_msaa.clear(color=(0, 0, 0, 0))  # CHANGED
 
                 # Look through the UI lens and draw
                 with self.hud_camera.activate():
@@ -851,6 +867,11 @@ class TrainingApp(arcade.Window):
                     self.fps_text.draw()
 
                 # ---------------------------------------------------------
+                # NEW: RESOLVE THE MSAA FRAMEBUFFER TO THE STANDARD ONE
+                # ---------------------------------------------------------
+                self.ctx.copy_framebuffer(self.hud_fbo_msaa, self.hud_fbo)
+
+                # ---------------------------------------------------------
                 # 4. WARP AND RENDER THE CANVAS OVER THE PHYSICS
                 # ---------------------------------------------------------
                 # Switch back to drawing on the real screen
@@ -859,11 +880,11 @@ class TrainingApp(arcade.Window):
                 # Enable blending so the transparent parts of the UI show the physics behind it
                 self.ctx.enable(self.ctx.BLEND)
 
-                # Feed our drawn-on invisible canvas to the shader
+                # Feed our resolved, drawn-on canvas to the shader
                 self.hud_texture.use(0)
                 self.barrel_shader["texture0"] = 0
 
-                # Render it! (This automatically covers the whole screen, no camera needed here)
+                # Render it!
                 self.screen_quad.render(self.barrel_shader)
 
 

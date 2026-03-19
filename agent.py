@@ -317,10 +317,10 @@ class Network:
     def mutate_weights(self):
         for synapse in self.connections:
             # 90% chance for a gene to be mutated
-            if random.random() < 0.9:
+            if random.random() < 0.8:
                 if random.random() < 0.9:
                     # Perturb the weight with a larger power (e.g. 0.5 is standard)
-                    synapse.weight += random.uniform(-0.25, 0.25)
+                    synapse.weight += random.uniform(-0.1, 0.1)
                 else:
                     # Totally entirely new weight 10% of time
                     synapse.weight = random.uniform(-2.0, 2.0)

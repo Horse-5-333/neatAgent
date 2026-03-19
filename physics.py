@@ -213,8 +213,8 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
         b2_ax -= drag_coeff * b2_v_mag * b2_vx / b2_mass
         b2_ay -= drag_coeff * b2_v_mag * b2_vy / b2_mass
 
-        rolling_friction = 2.0 * friction_multiplier
-        cart_ax -= (rolling_friction * cart_v_x) / cart_mass
+        # rolling_friction = 2.0 * friction_multiplier
+        # cart_ax -= (rolling_friction * cart_v_x) / cart_mass
 
         # Joint Friction (Cart & Bob 1)
         rod_x = b1_x - cart_x
@@ -302,7 +302,7 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
         b2_y += b2_vy * sub_dt
 
     # Calculate rewards and obs
-    cart_obs_x = (2.0 * cart_x - 14.0) / 8.0
+    cart_obs_x = (2.0 * cart_x - SCREEN_WIDTH) / TRACK_LENGTH
     cart_obs_v = math.tanh(cart_v_x / 6.0)
 
     rod1_x = b1_x - cart_x
@@ -321,29 +321,21 @@ def fast_physics_step(action_force, dt, gravity, friction_multiplier,
     w_x = math.tanh(b2_vx / 6.0)
     w_y = math.tanh(b2_vy / 6.0)
 
-    max_length = b1_rest + b2_rest
-    # Normalize height to roughly [-1.0, 1.0]
-    normalized_height = (b2_y - TRACK_HEIGHT) / max_length
+    max_height = TRACK_HEIGHT + b1_rest + b2_rest
+    min_height = TRACK_HEIGHT - b1_rest - b2_rest
+
+    # needs to range from 0 (absolute bottom) to 1 (absolute top) of range
+    normalized_height = 2 * (b2_y - min_height) / (max_height - min_height)
 
     # 1. Height is still the primary goal
-    reward = abs(normalized_height) * normalized_height
+    reward = normalized_height ** 2
 
     # 2. Centering Penalty: Softly pull it to the middle of the track (obs0 is cart_obs_x)
     reward -= 0.1 * abs(cart_obs_x)
-
-    # 3. Effort Penalty: Softly discourage high speeds
     reward -= 0.05 * abs(cart_v_x)
 
-    # 4. Smoothness Penalty: Severely punish high-frequency jitter
-    delta_force = action_force
-    reward -= 0.25 * (delta_force ** 2)
-
-    # Keep the boundary penalty as a hard fail state
-    if cart_obs_x <= -0.85 or cart_obs_x >= 0.85:
-        reward -= 5.0
-
     frame = False
-    if b1_y > TRACK_HEIGHT and b2_y > TRACK_HEIGHT + (b1_rest / 2.0):
+    if b1_y > TRACK_HEIGHT + (b1_rest / 2) and b2_y > TRACK_HEIGHT + b1_rest + (b2_rest / 2):
         frame = True
 
 
@@ -380,7 +372,7 @@ class DoublePendulumEnv:
         vel = [self.start_var * v for v in vel]
 
         self.bob1_rest_length = 0.5
-        self.bob2_rest_length = 0.6
+        self.bob2_rest_length = 0.5
         bob1_start_s = track_home + self.bob1_rest_length * Vec(math.cos(theta[0]), math.sin(theta[0]))
         bob2_start_s = bob1_start_s + self.bob2_rest_length * Vec(math.cos(theta[1]), math.sin(theta[1]))
         bob1_start_v = vel[0] * Vec(-math.sin(theta[0]), math.cos(theta[0]))
@@ -419,10 +411,14 @@ class DoublePendulumEnv:
         final_reward -= smoothness_penalty
         self.previous_action_force = action_force
 
+        fail = False
         if obs0 <= -0.85 or obs0 >= 0.85:
-            final_reward -= 5.0
+            fail = True
+            final_reward = 0
 
-        return [obs0, obs1, obs2, obs3, obs4, obs5, obs6, obs7, obs8, obs9], final_reward, frame
+        final_reward = max(0.01, final_reward)
+
+        return [obs0, obs1, obs2, obs3, obs4, obs5, obs6, obs7, obs8, obs9], final_reward, frame, fail
 
     def observations(self):
         cart_x = (2*self.cart.s.x - SCREEN_WIDTH)/TRACK_LENGTH
